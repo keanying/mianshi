@@ -78,3 +78,22 @@
 @media(max-width:1150px){.cand-grid{grid-template-columns:1fr}}
 @media(max-width:760px){.controls{overflow-x:auto}.signals{grid-template-columns:1fr}.cand-panel,.method section{padding:13px 15px}.score-row{grid-template-columns:1fr}.twist{display:block}.twist strong{display:block;margin-bottom:4px}.dim-filter .dim-label{display:none}}
 @media print{.method,.cand-panel{display:none!important}}
+/* 简历板块：总览卡片与分块标签 */
+.block-tabs{flex-shrink:0;display:flex;gap:6px;overflow-x:auto;padding:0 0 12px;scrollbar-width:thin}
+.block-tabs button{flex-shrink:0;display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border:1px solid var(--line);border-radius:999px;background:#fff;color:#5d6a7b;font-size:11px;white-space:nowrap}
+.block-tabs button small{color:#a0a8b4;font-size:10px}
+.block-tabs button.active{background:#177f70;border-color:#177f70;color:#fff}
+.block-tabs button.active small{color:#cfe9e1}
+.board-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;flex-shrink:0}
+.board-card{display:flex;flex-direction:column;gap:8px;text-align:left;background:#fff;border:1px solid #e2e7ed;border-radius:12px;padding:16px 18px;color:inherit}
+.board-card:hover{border-color:#9fcfbf;box-shadow:0 4px 18px #172d2412}
+.board-card .board-top{display:flex;align-items:center;gap:10px}
+.board-card .board-id{display:grid;place-items:center;width:30px;height:30px;border-radius:8px;background:#e5f2ed;color:#126e5d;font-weight:700}
+.board-card strong{font-size:14px;color:#273446}
+.board-card .board-headline{font-size:11px;color:#7f8a98}
+.board-card p{margin:0;font-size:11.5px;line-height:1.8;color:#5e6d7e;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.board-card .board-blocks{display:flex;flex-wrap:wrap;gap:4px}
+.board-card .board-blocks span{font-size:10px;color:#6b7888;background:#f3f6f7;border-radius:4px;padding:1px 6px}
+.board-card .board-foot{display:flex;justify-content:space-between;font-size:10px;color:#97a1ad;border-top:1px solid #edf0f3;padding-top:8px}
+.board-add{border-style:dashed;background:#fbfcfc;justify-content:center;color:#7f8a98;font-size:11.5px;line-height:1.8}
+.nav-item.back{color:#177f70}

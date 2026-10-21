@@ -1,7 +1,8 @@
-"""Assemble the interviewer workbench into one offline HTML file.
+"""Assemble the interviewer workbench into offline HTML files.
 
 Usage:
-    python3 scripts/build.py            # full build: pool + résumés found in private/resumes/
+    python3 scripts/build.py            # full build: pool + every résumé board in private/resumes/<ID>/
+                                        # also writes dist/candidates/<ID>.html, one board per résumé
     python3 scripts/build.py --public   # pool only, safe to publish (no candidate data)
 """
 import argparse
@@ -55,7 +56,11 @@ def build_pool():
 
 def load_candidates():
     folder = ROOT / "private/resumes"
-    candidates = [load(p) for p in sorted(folder.glob("resume_*.json"))] if folder.exists() else []
+    # 每份简历一个目录：private/resumes/<ID>/resume.md（转录原文）+ questions.json（板块题目）。
+    paths = sorted(folder.glob("*/questions.json")) if folder.exists() else []
+    candidates = [load(p) for p in paths]
+    for path, c in zip(paths, candidates):
+        assert c["id"] == path.parent.name, f"{path}: id {c['id']} does not match its directory"
     seen = set()
     for c in candidates:
         for b in c["blocks"]:
@@ -70,34 +75,43 @@ def load_candidates():
     return candidates
 
 
+def render(data, filename):
+    # 内嵌在 <script type="application/json"> 中，需转义 "</" 以免提前闭合标签。
+    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    html = (ROOT / "src/shell.html").read_text(encoding="utf-8")
+    for key, value in {
+        "{{STYLE}}": (ROOT / "src/style.css").read_text(encoding="utf-8"),
+        "{{METHOD}}": (ROOT / "src/method.html").read_text(encoding="utf-8"),
+        "{{SCRIPT}}": (ROOT / "src/app.js").read_text(encoding="utf-8"),
+        "{{FILENAME}}": Path(filename).name,
+        "{{DATA}}": payload,
+    }.items():
+        html = html.replace(key, value)
+    out = ROOT / "dist" / filename
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(html, encoding="utf-8")
+    resume_count = sum(len(b["questions"]) for c in data["candidates"] for b in c["blocks"])
+    print(f"{out.relative_to(ROOT)}: {len(data['questions'])} pool questions, "
+          f"{len(data['candidates'])} résumé boards, {resume_count} résumé questions")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--public", action="store_true", help="exclude résumé data")
     args = parser.parse_args()
 
     categories, questions = build_pool()
-    candidates = [] if args.public else load_candidates()
-    data = {"categories": categories, "questions": questions, "candidates": candidates}
-    # 内嵌在 <script type="application/json"> 中，需转义 "</" 以免提前闭合标签。
-    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
-
-    filename = "interview-workbench-public.html" if args.public else "interview-workbench.html"
-    html = (ROOT / "src/shell.html").read_text(encoding="utf-8")
-    for key, value in {
-        "{{STYLE}}": (ROOT / "src/style.css").read_text(encoding="utf-8"),
-        "{{METHOD}}": (ROOT / "src/method.html").read_text(encoding="utf-8"),
-        "{{SCRIPT}}": (ROOT / "src/app.js").read_text(encoding="utf-8"),
-        "{{FILENAME}}": filename,
-        "{{DATA}}": payload,
-    }.items():
-        html = html.replace(key, value)
-
-    out = ROOT / "dist" / filename
-    out.parent.mkdir(exist_ok=True)
-    out.write_text(html, encoding="utf-8")
-    resume_count = sum(len(b["questions"]) for c in candidates for b in c["blocks"])
-    print(f"{out.relative_to(ROOT)}: {len(questions)} pool questions, "
-          f"{len(candidates)} candidates, {resume_count} résumé questions")
+    if args.public:
+        render({"categories": categories, "questions": questions, "candidates": []},
+               "interview-workbench-public.html")
+        return
+    candidates = load_candidates()
+    render({"categories": categories, "questions": questions, "candidates": candidates},
+           "interview-workbench.html")
+    for c in candidates:
+        # 单份简历的独立板块，便于转给其他面试官；文件名就是页面里的下载名。
+        render({"categories": categories, "questions": questions, "candidates": [c], "single": True},
+               f"candidates/{c['id']}.html")
 
 
 if __name__ == "__main__":
