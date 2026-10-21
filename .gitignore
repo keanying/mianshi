@@ -2,3 +2,4 @@ private/
 dist/interview-workbench.html
 dist/candidates/
 __pycache__/
+dist/*.zip
