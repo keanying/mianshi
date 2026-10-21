@@ -135,6 +135,8 @@ mark{background:#fef08a;color:inherit;border-radius:3px;padding:0 1px}
 .empty{padding:70px 20px;text-align:center;color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:var(--radius)}
 .empty h3{margin:0 0 6px;color:var(--ink);font-size:16px}
 .empty p{margin:0 0 16px;font-size:13.5px}
+.boot{text-align:left;line-height:1.9}
+.boot p{margin:0 0 8px}
 
 /* 简历板块 */
 .boards{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
