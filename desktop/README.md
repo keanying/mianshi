@@ -20,8 +20,9 @@
 
 1. **大模型**：选「智谱 GLM」或「DeepSeek」，粘贴 API Key，点「测试连接」。
    - 智谱：在 [open.bigmodel.cn](https://open.bigmodel.cn) 创建 API Key，默认模型 `glm-5`。
-   - DeepSeek：在 [platform.deepseek.com](https://platform.deepseek.com) 创建 API Key，默认模型 `deepseek-chat`。
+   - DeepSeek：在 [platform.deepseek.com](https://platform.deepseek.com) 创建 API Key，默认模型 `deepseek-v4-flash`（旧的 `deepseek-chat` / `deepseek-reasoner` 已于 2026-07-24 下线，旧设置会自动换成新名字）。
    - 模型名可以手动改成账号里可用的任意模型。
+   - 「关闭深度思考」默认勾选：请求里带上 `thinking: disabled`，出题和评估更快、更省。不支持关闭思考的模型（如 GLM-5.3）会自动去掉该参数照常调用。
 2. **语音转文字**：用智谱 GLM-ASR（默认模型 `glm-asr-2512`）。大模型选智谱时勾选「共用 API Key」即可；选 DeepSeek 时需要另填一个智谱的 Key（DeepSeek 没有语音转文字）。点「测试转写」确认可用。
 3. **出题默认值**（可选）：默认岗位、岗位要求、每场题目数量。
 

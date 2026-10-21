@@ -101,6 +101,7 @@ async function renderSettings() {
    <label>接口地址<input name="baseURL" value="${esc(s.baseURL)}" placeholder="https://…"></label>
    <label>模型<input name="model" list="modelList" value="${esc(s.model)}"><datalist id="modelList">${(P[s.provider]?.models || []).map((m) => `<option value="${m}">`).join('')}</datalist></label>
    <label>API Key<input name="apiKey" type="password" placeholder="${esc(s.apiKeyHint || '粘贴 API Key')}"></label>
+   <label class="check"><input type="checkbox" name="noThinking" ${s.thinking ? '' : 'checked'}> 关闭深度思考（出题、评估更快更省；个别不支持关闭的模型会自动照常调用）</label>
    <div class="row"><button class="btn" type="button" id="testLLM">测试连接</button><span class="muted" id="testLLMResult"></span></div>
    <h2>语音转文字（智谱 GLM-ASR）</h2>
    <label class="check"><input type="checkbox" name="asrEnabled" ${s.asrEnabled ? 'checked' : ''}> 录音时自动转写（每段 ${s.chunkSeconds} 秒，边录边转）</label>
@@ -129,7 +130,7 @@ async function renderSettings() {
   });
   form.asrUseChatKey.addEventListener('change', () => { $('.asr-key', form).hidden = form.asrUseChatKey.checked; });
   const collect = () => ({
-    provider: form.provider.value, baseURL: form.baseURL.value.trim(), model: form.model.value.trim(), apiKey: form.apiKey.value,
+    provider: form.provider.value, baseURL: form.baseURL.value.trim(), model: form.model.value.trim(), apiKey: form.apiKey.value, thinking: !form.noThinking.checked,
     asrEnabled: form.asrEnabled.checked, asrUseChatKey: form.asrUseChatKey.checked, asrKey: form.asrKey.value,
     asrBaseURL: form.asrBaseURL.value.trim(), asrModel: form.asrModel.value.trim(), chunkSeconds: Number(form.chunkSeconds.value),
     position: form.position.value.trim(), jd: form.jd.value.trim(), questionCount: Number(form.questionCount.value),

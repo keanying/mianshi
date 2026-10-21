@@ -29,6 +29,18 @@ test('chat streams content, ignores reasoning, reports progress', async () => {
   server.close();
 });
 
+test('chat asks to turn thinking off and falls back when the model refuses', async () => {
+  const { server, url, calls } = await mock.start();
+  const base = { baseURL: url, apiKey: 'test-key', messages: [{ role: 'user', content: 'hi' }] };
+  assert.strictEqual(await chat({ ...base, model: 'm', thinking: false }), '正常');
+  assert.deepStrictEqual(JSON.parse(calls.at(-1).body).thinking, { type: 'disabled' });
+  assert.strictEqual(await chat({ ...base, model: 'always-think', thinking: false }), '正常');
+  assert.strictEqual(JSON.parse(calls.at(-1).body).thinking, undefined, 'retried without the thinking parameter');
+  await chat({ ...base, model: 'm', thinking: true });
+  assert.strictEqual(JSON.parse(calls.at(-1).body).thinking, undefined, 'thinking on sends no parameter');
+  server.close();
+});
+
 test('question generation round trip produces normalized plan', async () => {
   const { server, url, calls } = await mock.start();
   const raw = await chatJSON({ baseURL: url, apiKey: 'test-key', model: 'm', messages: prompts.questionMessages({ resume: '简历内容', position: 'Agent 开发', count: 20 }) });
@@ -85,6 +97,9 @@ test('settings never return the key in plain text', () => {
   assert.strictEqual(s.getSecret().asrKey, 'sk-secret-1234');
   s.save({ apiKey: '' });
   assert.strictEqual(s.getSecret().apiKey, 'sk-secret-1234', 'empty input keeps the saved key');
+  assert.strictEqual(s.getSecret().thinking, false, 'thinking is off by default');
+  s.save({ model: 'deepseek-chat' });
+  assert.strictEqual(s.getPublic().model, 'deepseek-v4-flash', 'retired DeepSeek model names are migrated');
 });
 
 test('report renders markdown and html', () => {

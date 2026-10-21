@@ -41,6 +41,12 @@ function start(port = 0) {
       }
       if (!req.url.endsWith('/chat/completions')) { res.writeHead(404); res.end(); return; }
       const payload = JSON.parse(body.toString('utf8'));
+      // 模拟不支持关闭思考的模型（如 GLM-5.3）：带 thinking.disabled 时报 400。
+      if (payload.model === 'always-think' && payload.thinking?.type === 'disabled') {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end('{"error":{"message":"thinking.type=disabled is not supported for this model"}}');
+        return;
+      }
       const prompt = payload.messages.map((m) => m.content).join('\n');
       let answer = '正常';
       if (prompt.includes('请准备大约')) answer = '```json\n' + JSON.stringify(PLAN) + '\n```';

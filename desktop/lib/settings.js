@@ -9,6 +9,7 @@ const DEFAULTS = {
   provider: 'glm',
   baseURL: PROVIDERS.glm.baseURL,
   model: PROVIDERS.glm.models[0],
+  thinking: false, // 默认关闭模型的深度思考
   asrEnabled: true,
   asrBaseURL: DEFAULT_ASR.baseURL,
   asrModel: DEFAULT_ASR.model,
@@ -34,7 +35,12 @@ function createSettings(root, safeStorage) {
     return stored.startsWith('plain:') ? stored.slice(6) : '';
   };
   const read = () => {
-    try { return { ...DEFAULTS, ...JSON.parse(fs.readFileSync(file, 'utf8')) }; } catch { return { ...DEFAULTS }; }
+    let s;
+    try { s = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(file, 'utf8')) }; } catch { s = { ...DEFAULTS }; }
+    // 旧版保存的已下线模型名，换成对应的新模型。
+    const renamed = PROVIDERS[s.provider]?.retired?.[s.model];
+    if (renamed) s.model = renamed;
+    return s;
   };
 
   // 给界面看的版本：不返回明文 Key，只返回是否已填和末四位。

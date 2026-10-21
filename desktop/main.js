@@ -63,7 +63,7 @@ const send = (channel, payload) => win && !win.isDestroyed() && win.webContents.
 
 function llmOptions(extra = {}) {
   const s = settings.getSecret();
-  return { baseURL: s.baseURL, apiKey: s.apiKey, model: s.model, ...extra };
+  return { baseURL: s.baseURL, apiKey: s.apiKey, model: s.model, thinking: s.thinking, ...extra };
 }
 
 handle('app:info', () => ({ providers: PROVIDERS, dimensions: prompts.DIMENSIONS, dataDir: app.getPath('userData'), version: app.getVersion(), platform: process.platform }));
