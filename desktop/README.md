@@ -58,6 +58,50 @@
 | 录不到声音 | Windows：设置 → 隐私 → 麦克风，允许桌面应用；macOS：系统设置 → 隐私与安全性 → 麦克风，勾选「面试助手」 |
 | PDF 读不出文字 | 多半是扫描件，把简历内容复制粘贴到文本框 |
 
+## 自己打包
+
+打包要在对应的系统上做：Windows 安装包在 Windows 上打，macOS 安装包在 Mac 上打。
+
+**1. 准备环境（只做一次）**
+
+- 安装 [Node.js 22 LTS](https://nodejs.org/zh-cn)（一路下一步）和 [Git](https://git-scm.com/downloads)。
+- 国内网络建议先设置镜像，否则下载 Electron 很慢或失败。
+
+  Windows（PowerShell）：
+  ```powershell
+  npm config set registry https://registry.npmmirror.com
+  $env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"
+  $env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-builder-binaries/"
+  ```
+  macOS（终端）：
+  ```bash
+  npm config set registry https://registry.npmmirror.com
+  export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
+  export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
+  ```
+  （`$env:` / `export` 只对当前窗口有效，新开窗口要重新执行。）
+
+**2. 下载代码并安装依赖**
+
+```bash
+git clone https://github.com/keanying/mianshi.git
+cd mianshi/desktop
+npm install
+npm test          # 可选：跑一遍单元测试，看到 pass 即可
+npm start         # 可选：先直接运行看看
+```
+
+**3. 打包**
+
+| 系统 | 命令 | 产物（在 `desktop/dist/` 里） |
+|---|---|---|
+| Windows | `npm run dist:win` | `interview-assistant-<版本>-win-x64.exe`（安装版）和 `…-win-x64.zip`（免安装版） |
+| macOS | `npm run dist:mac` | `interview-assistant-<版本>-mac-arm64.dmg`（M 系列芯片）和 `…-mac-x64.dmg`（Intel） |
+
+- 版本号在 `package.json` 的 `version` 字段，改了再打包，安装包文件名会跟着变。
+- 安装包没有做代码签名：Windows 首次运行如出现“Windows 已保护你的电脑”，点「更多信息 → 仍要运行」；macOS 见上面「安装」一节。
+- 不想在本机装环境：GitHub 仓库 → Actions → 「面试助手桌面版」→ 右侧「Run workflow」，几分钟后在这次运行页面底部的 Artifacts 里下载 Windows 和 macOS 安装包（每次推送 `desktop/` 的改动也会自动打包）。
+
 ## 开发
 
 ```bash
