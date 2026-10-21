@@ -63,6 +63,21 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await page.waitForFunction(() => document.querySelector('#resumeText')?.value.includes('王小明'));
   check(true, 'PDF résumé imported');
   await shot('2-resume');
+  // 2. 音频调试：面试官试录转写、模拟候选人说话并转写。
+  await page.click('[data-tab-go=audio]');
+  await page.waitForSelector('#audioBox #micSelect');
+  await page.waitForSelector('#heard-mic.ok', { timeout: 15000 });
+  check(true, 'audio step: microphone level detected');
+  await page.click('#testMic');
+  await page.waitForSelector('.check-result.ok', { timeout: 30000 });
+  check((await page.textContent('.check-result.ok')).includes('转写正常'), 'audio step: interviewer test clip transcribed');
+  await page.click('#simCand');
+  await page.waitForFunction(() => document.querySelectorAll('.check-result.ok').length >= 2, null, { timeout: 30000 })
+    .catch(async (e) => { console.log('SIM', await page.textContent('#audioBox')); throw e; });
+  check((await page.locator('.badge.ok').count()) === 2, 'audio step: simulated candidate transcribed, both checks marked');
+  await shot('2-audio');
+  // 3. 生成面试题
+  await page.click('[data-tab-go=plan]');
   await page.click('#genPlan');
   await page.waitForSelector('#stream-plan .q.streaming', { timeout: 30000 });
   check(true, 'questions stream in while the plan is being generated');
@@ -78,14 +93,7 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
 
   // 3. 面试中：录音约 12 秒（两段），边录边转写
   await page.click('[data-tab-go=live]');
-  // 面试前检查：麦克风有声音、试录 5 秒能转写出文字。
-  await page.waitForSelector('#checkBox #micSelect');
-  await page.waitForSelector('#heard-mic.ok', { timeout: 15000 });
-  check(true, 'device check: microphone level detected');
-  await page.click('#testMic');
-  await page.waitForSelector('.check-result.ok', { timeout: 30000 });
-  check((await page.textContent('.check-result.ok')).includes('转写正常'), 'device check: test clip transcribed');
-  await shot('4-check');
+  check((await page.textContent('.rec-note')).includes('音频已调试'), 'live page shows the audio check passed');
   await page.click('#recStart');
   await page.waitForSelector('#recStop').catch(async () => { await shot('err-live'); console.log('TOAST', await page.textContent('#toast')); });
   await page.waitForTimeout(3000);
@@ -96,9 +104,15 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await page.fill('#notes', '项目讲得清楚，应变偏弱。');
   // 录到第 13 秒以后再结束，保证除了完整的第一段外还有一段收尾的录音。
   await page.waitForFunction(() => { const [m, s] = document.querySelector('#recTime').textContent.split(':').map(Number); return m * 60 + s >= 13; }, null, { timeout: 30000 });
+  const askedBefore = await page.textContent('#askedCount');
+  await page.click('[data-ask-next]');
+  check((await page.textContent('#askedCount')) !== askedBefore && (await page.locator('.q-row.done').count()) >= 2, 'live: mark asked and move to next question');
   await shot('4-live');
+  // 5. 结束面试：自动进入评估报告，先区分说话人，再流式生成评估。
   await page.click('#recStop');
-  await page.waitForSelector('#recStart', { timeout: 30000 });
+  await page.waitForSelector('#stream-eval .dim-card', { timeout: 30000 });
+  check(true, 'ending the interview generates the report automatically, streaming');
+  await page.waitForSelector('.dim-card select', { timeout: 30000 });
   const dirs = fs.readdirSync(path.join(dataDir, 'interviews'));
   const ivDir = path.join(dataDir, 'interviews', dirs[0]);
   check(fs.existsSync(path.join(ivDir, '完整录音.wav')), 'full recording saved');
@@ -107,21 +121,10 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   if (process.env.E2E_VERBOSE) console.log('SAVED', saved.transcript.length, JSON.stringify(saved.notes), saved.status);
   check(saved.transcript.length >= 2 && saved.notes.includes('应变偏弱'), 'transcript and notes persisted');
   check(fs.existsSync(path.join(ivDir, 'resume.pdf')), 'résumé file stored with the interview');
-  // 面试题：当前题「已问，下一题」；转写：区分面试官 / 候选人。
-  const askedBefore = await page.textContent('#askedCount');
-  await page.click('[data-ask-next]');
-  check((await page.textContent('#askedCount')) !== askedBefore && (await page.locator('.q-row.done').count()) >= 2, 'live: mark asked and move to next question');
-  await page.click('#splitSpeakers');
-  await page.waitForSelector('.turn.them', { timeout: 30000 });
-  check((await page.locator('.turn.me').count()) === 1 && (await page.textContent('.turn.them')).includes('候选人说'), 'transcript split into interviewer and candidate');
-  await shot('4-live-speakers');
+  check(saved.dialogue?.length >= 2 && saved.dialogue.some((t) => t.speaker === '候选人' && t.text.includes('候选人说')), 'interviewer and candidate separated before the evaluation');
+  check(saved.audioCheck?.interviewer && saved.audioCheck?.candidate, 'audio check result stored with the interview');
 
-  // 4. 评估、改分、导出
-  await page.click('.steps [data-tab=eval]');
-  await page.click('#genEval').catch(async (e) => { await shot('err-eval'); console.log('EVALBTN', await page.textContent('#tabBody')); throw e; });
-  await page.waitForSelector('#stream-eval .dim-card', { timeout: 30000 });
-  check(true, 'evaluation streams in dimension by dimension');
-  await page.waitForSelector('.dim-card select', { timeout: 30000 });
+  // 评估：改分、导出
   check((await page.locator('.dim-card').count()) === 5, 'five dimensions scored');
   check((await page.textContent('.verdict-panel')).includes('待定'), 'verdict shown');
   await page.selectOption('[data-score="0"]', '3');
