@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="description" content="Agent 工程师面试工作台：按专业、表达、应变三维度组织的通用题池，按简历分块的简历板块，评估方法与打分。">
+<title>Agent 面试工作台</title>
+<style>
+{{STYLE}}
+</style>
+</head>
+<body>
+<a class="skip" href="#cards">跳转至题目</a>
+<aside class="sidebar" id="sidebar" aria-label="导航">
+ <div class="brand"><span class="brand-mark">面</span><div><strong>Agent 面试工作台</strong><small>专业 · 表达 · 应变</small></div></div>
+ <nav class="views" aria-label="视图">
+  <button data-view="pool"><span>通用题池</span><em id="poolCount"></em></button>
+  <button data-view="resume" id="resumeTab"><span>简历板块</span><em id="resumeCount"></em></button>
+  <button data-view="method"><span>评估方法</span><em></em></button>
+ </nav>
+ <div class="side-title" id="sideTitle"></div>
+ <nav class="side-list" id="sideList" aria-label="分类"></nav>
+ <section class="side-foot" aria-label="本轮记录">
+  <div class="foot-row"><span>本轮已问</span><strong id="progressLabel">0</strong></div>
+  <div class="progress"><i id="progressFill"></i></div>
+  <div class="foot-row"><span>面试题单</span><strong id="savedCount">0</strong></div>
+  <div class="foot-actions"><button class="link" id="newRound">开始下一场</button><button class="link danger" id="resetProgress">清空记录</button></div>
+  <p class="foot-note" id="storageNote">记录仅保存在本机浏览器</p>
+ </section>
+</aside>
+<div class="overlay" id="overlay"></div>
+<div class="main">
+ <header class="top">
+  <button class="icon-btn menu" id="menuButton" aria-label="打开导航" aria-expanded="false">☰</button>
+  <label class="search" for="searchInput"><span data-icon="search"></span><input id="searchInput" type="search" placeholder="搜索问题、要点或题号" autocomplete="off" aria-label="搜索"><button class="clear" id="clearSearch" type="button" aria-label="清空搜索" hidden>×</button><kbd>/</kbd></label>
+  <div class="top-actions">
+   <button class="btn primary" id="focusButton" title="全屏逐题提问，←/→ 切换，空格显示要点"><span data-icon="play"></span><span class="label">面试模式</span></button>
+   <button class="btn" id="randomButton" title="从当前结果随机抽一题"><span data-icon="shuffle"></span><span class="label">随机</span></button>
+   <button class="btn" id="printButton" title="打印当前视图"><span data-icon="printer"></span><span class="label">打印</span></button>
+   <a class="btn" id="downloadButton" href="./index.html" download="index.html" title="下载本页，可离线使用"><span data-icon="download"></span><span class="label">下载</span></a>
+  </div>
+ </header>
+ <main class="content" id="main">
+  <section class="page" id="page">
+   <div class="page-head">
+    <div><h1 id="pageTitle">通用题池</h1><p id="pageSub"></p></div>
+    <select class="mobile-nav" id="mobileNav" aria-label="选择分类"></select>
+   </div>
+   <div class="filters" id="filters" aria-label="筛选">
+    <div class="segmented" id="dimFilter" role="group" aria-label="维度"><button data-dim="">全部</button><button data-dim="pro">专业</button><button data-dim="exp">表达</button><button data-dim="ext">应变</button></div>
+    <div class="toggles">
+     <button class="toggle" id="favoriteFilter"><span data-icon="star"></span>题单</button>
+     <button class="toggle" id="unlearnedFilter"><span data-icon="circle"></span>未问</button>
+     <button class="toggle" id="interviewButton"><span data-icon="eye"></span>只看问题</button>
+     <button class="toggle" id="codeFilter">编程题</button>
+     <button class="toggle" id="originFilter">源自简历</button>
+    </div>
+    <div class="view-actions"><button class="link" id="expandButton">全部展开</button><button class="link" id="collapseButton">全部收起</button></div>
+   </div>
+   <div class="tabs" id="blockTabs" role="tablist" aria-label="简历分块" hidden></div>
+   <div class="cards" id="cards" tabindex="-1"><div class="empty boot"><h3>页面没有运行起来</h3><p>当前打开方式不支持运行页面脚本（常见于微信、QQ、手机文件预览、GitHub 代码页）。</p><p>电脑：右键文件 →「打开方式」→ 选 Chrome、Edge 或 Safari。<br>手机：用 Safari 或 Chrome 打开，或在浏览器里访问发布后的网址。</p></div></div>
+   <div class="pager" id="pagination"><span id="pageRange"></span><div><button class="btn" id="prevButton">上一页</button><span id="pageLabel"></span><button class="btn" id="nextButton">下一页</button></div></div>
+  </section>
+  <section class="method" id="methodView" hidden aria-label="评估方法">{{METHOD}}</section>
+  <section class="print-only" id="printRoot" aria-label="打印内容"></section>
+ </main>
+</div>
+<div class="focus" id="focus" hidden role="dialog" aria-modal="true" aria-label="面试模式">
+ <div class="focus-top"><span id="focusMeta"></span><span class="focus-pos" id="focusPos"></span><button class="link" id="focusClose">退出 <kbd>Esc</kbd></button></div>
+ <div class="focus-body"><div class="focus-inner"><div id="focusDim"></div><h2 id="focusQuestion"></h2><div id="focusAnswer" hidden></div></div></div>
+ <div class="focus-bar"><button class="btn" id="focusPrev">← 上一题</button><button class="btn" id="focusReveal">显示要点 <kbd>空格</kbd></button><button class="btn" id="focusAsk">标记已问 <kbd>A</kbd></button><button class="btn primary" id="focusNext">下一题 →</button></div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden><div><strong id="toastTitle"></strong><span id="toastDesc"></span></div><button class="link" id="toastUndo" hidden>撤销</button><button class="toast-close" id="toastClose" aria-label="关闭">×</button></div>
+<dialog id="confirmDialog" aria-labelledby="dialogTitle" aria-describedby="dialogDescription"><h2 id="dialogTitle"></h2><p id="dialogDescription"></p><div class="dialog-actions"><button class="btn" id="dialogCancel" autofocus>取消</button><button class="btn primary" id="dialogConfirm">确认</button></div></dialog>
+<script id="questionData" type="application/json">{{DATA}}</script>
+<script>
+{{SCRIPT}}
+</script>
+</body>
+</html>
