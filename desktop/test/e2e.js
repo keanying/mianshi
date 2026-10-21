@@ -13,7 +13,7 @@ const failures = [];
 const check = (ok, message) => { if (!ok) failures.push(message); console.log(`${ok ? '✓' : '✗'} ${message}`); };
 
 (async () => {
-  const { server, url, calls } = await mock.start();
+  const { server, url, calls, setAsr } = await mock.start();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'interview-e2e-'));
   const exportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'interview-export-'));
   // 虚拟麦克风的声音：1.5 秒“说话”（带起伏的音调）+ 1.2 秒安静，循环播放，用来测试说话检测和按停顿切段。
@@ -80,14 +80,21 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await page.waitForSelector('#speak-mic.on', { timeout: 15000 });
   check(true, 'audio step: speaking detected on the microphone');
   check((await page.locator('.badge.ok').count()) === 0, 'audio step: nothing marked as passed before testing');
+  // 面试官读给定的句子：转写对得上才算通过；对不上要提示。
+  setAsr('今天天气不错');
   await page.click('#testMic');
+  await page.waitForSelector('.side-card:first-child .lines li.mismatch', { timeout: 30000 });
+  check((await page.locator('.badge.ok').count()) === 0, 'audio step: a transcript that does not match the sentence is not accepted');
+  setAsr('我们先从你最近做的一个项目聊起，说说你具体负责哪一块。');
   await page.waitForSelector('.side-card:first-child .lines li.ok', { timeout: 30000 });
-  check((await page.textContent('.side-card:first-child .lines li.ok')).includes('候选人说'), 'audio step: interviewer utterance detected and transcribed');
+  check((await page.textContent('.side-card:first-child .lines li.ok')).includes('准确'), 'audio step: interviewer sentence transcribed and matched');
   await page.click('#testMic'); // 停止测试，避免和模拟候选人混在一起
+  setAsr('您好我叫王小明，最近两年主要在做智能体和知识库问答的项目');
   await page.click('#simCand');
   await page.waitForSelector('.side-card:nth-child(2) .lines li.ok', { timeout: 30000 })
     .catch(async (e) => { console.log('SIM', await page.textContent('#audioBox')); throw e; });
   check((await page.locator('.badge.ok').count()) === 2, 'audio step: simulated candidate played, heard and transcribed');
+  setAsr(null);
   await shot('2-audio');
   // 3. 生成面试题
   await page.click('[data-tab-go=plan]');
@@ -114,12 +121,22 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await page.waitForFunction(() => document.querySelector('#transcript')?.textContent.includes('段：候选人说'), null, { timeout: 30000 })
     .catch(async (e) => { console.log('DEBUG', await page.textContent('#recTime'), '|', await page.textContent('#transcript'), '|', fs.readdirSync(dataDir + '/interviews').map((d) => fs.readdirSync(`${dataDir}/interviews/${d}/audio`)).join()); throw e; });
   check(true, 'first segment transcribed while recording');
+  // AI 副驾：面试官问出准备好的第 3 题，自动跳到这题并标为已问；点「看看答得怎样」给出要点覆盖和追问建议。
+  setAsr('好，那我换个问题：要是业务说每周自动更新，只重写有新资料的章节，你会怎么改呢？');
+  await page.waitForFunction(() => document.querySelector('#liveQuestions .current h3')?.textContent.includes('每周自动更新'), null, { timeout: 30000 });
+  check((await page.textContent('.q-row.on em')).includes('已问'), 'copilot: asked question recognised from the transcript and marked asked');
+  setAsr(null);
+  await page.waitForTimeout(4000);
+  await page.click('#liveQuestions [data-review]');
+  await page.waitForSelector('.copilot-comment', { timeout: 30000 });
+  check((await page.locator('.points.reviewed li.hit').count()) === 1 && (await page.textContent('.copilot-follow')).includes('哪些章节'), 'copilot: answer reviewed with covered points and a follow-up');
+  await shot('4-copilot');
   await page.fill('#notes', '项目讲得清楚，应变偏弱。');
   // 录到第 13 秒以后再结束，保证除了完整的第一段外还有一段收尾的录音。
   await page.waitForFunction(() => { const [m, s] = document.querySelector('#recTime').textContent.split(':').map(Number); return m * 60 + s >= 13; }, null, { timeout: 30000 });
-  const askedBefore = await page.textContent('#askedCount');
+  const currentBefore = await page.textContent('#liveQuestions .current h3');
   await page.click('[data-ask-next]');
-  check((await page.textContent('#askedCount')) !== askedBefore && (await page.locator('.q-row.done').count()) >= 2, 'live: mark asked and move to next question');
+  check((await page.textContent('#liveQuestions .current h3')) !== currentBefore && (await page.locator('.q-row.done').count()) >= 2, 'live: mark asked and move to the next unasked question');
   await shot('4-live');
   // 5. 结束面试：自动进入评估报告，先区分说话人，再流式生成评估。
   await page.click('#recStop');
@@ -158,6 +175,15 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await page.waitForSelector('.tr[data-open]');
   check((await page.textContent('.table')).includes('王小明') && (await page.textContent('.table')).includes('已评估'), 'list shows evaluated interview');
   await shot('6-home');
+
+  // 6. 重新开始面试：打开记录，清空录音、转写和报告，简历和题目保留。
+  await page.click('.tr[data-open]');
+  await page.click('.steps [data-tab=live]');
+  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 0 }); });
+  await page.click('#restartInterview');
+  await page.waitForFunction(() => document.querySelector('#recStart')?.textContent.includes('开始面试') && !document.querySelector('#recStart').textContent.includes('继续'));
+  const restarted = JSON.parse(fs.readFileSync(path.join(ivDir, 'interview.json'), 'utf8'));
+  check(!restarted.transcript.length && !restarted.evaluation && restarted.plan && !fs.existsSync(path.join(ivDir, 'audio')) && (await page.textContent('#askedCount')).startsWith('已问 0'), 'restart clears recording, transcript and report but keeps the plan');
 
   const evalCall = calls.find((c) => c.body.includes('五个维度评估'));
   check(evalCall && evalCall.body.includes('应变偏弱') && evalCall.body.includes('段：候选人说') && evalCall.body.includes('候选人：'), 'evaluation prompt includes notes and the labelled transcript');

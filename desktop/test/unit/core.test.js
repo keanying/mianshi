@@ -142,6 +142,34 @@ test('partial JSON from a stream is parsed as far as it goes', () => {
   assert.strictEqual(parsePartialJSON('还没开始'), null);
 });
 
+test('text matching: transcription check, question recognition, echo, rhythm', () => {
+  const { coverage, matchQuestion, markEcho, rhythm } = require('../../src/text-match');
+  assert.ok(coverage('您好，我叫王小明。', '你好我叫王小明') > 0.8);
+  assert.ok(coverage('您好，我叫王小明。', '今天天气不错') < 0.2);
+  const qs = [{ q: '先简单说说你最近在做什么吧？' }, { q: '你们那个竞品分析平台，一份报告是怎么一步步生成出来的？' }];
+  assert.strictEqual(matchQuestion('那个竞品分析平台的报告是怎么生成的呢', qs).q, qs[1]);
+  assert.strictEqual(matchQuestion('我觉得还行吧', qs), null);
+  // 面试官麦克风录到了扬声器里候选人的声音：同时间、同内容的那句标为串音。
+  const tr = [{ index: 1, start: 50, end: 58, speaker: '候选人', text: '加一块牛肉，那是一张小熊的较量。' }, { index: 2, start: 50.3, end: 58, speaker: '面试官', text: '加一块牛肉，拿谁像来小熊的较量。' }, { index: 3, start: 60, end: 62, speaker: '面试官', text: '好的，下一个问题。' }];
+  assert.deepStrictEqual(markEcho(tr, tr[1]), [2]);
+  assert.ok(tr[1].echo && !tr[0].echo && !markEcho(tr, tr[2]).length);
+  const r = rhythm([{ start: 0, end: 4, speaker: '面试官', text: '问' }, { start: 8, end: 20, speaker: '候选人', text: '答' }, { start: 21, end: 24, speaker: '面试官', text: '问' }, { start: 28, end: 40, speaker: '候选人', text: '答' }, { start: 41, end: 44, speaker: '面试官', text: '问' }, { start: 48.5, end: 60, speaker: '候选人', text: '答' }]);
+  assert.ok(r.steady && Math.abs(r.avg - 4.17) < 0.01 && r.share > 0.7);
+});
+
+test('live review output is normalized', () => {
+  assert.deepStrictEqual(prompts.normalizeReview({ covered: [true, 'yes'], level: '很好', follow: ['追问一', '', '追问二', '追问三'] }, 3), { covered: [true, false, false], level: '一般', comment: '', follow: ['追问一', '追问二'] });
+  assert.match(prompts.reviewMessages({ question: { q: '题', points: ['a', 'b'] }, answer: '回答' })[1].content, /1\. a\n2\. b/);
+});
+
+test('noise-only ASR output counts as silence', async () => {
+  const { server, url, setAsr } = await mock.start();
+  setAsr('#');
+  assert.strictEqual(await transcribe({ baseURL: url, apiKey: 'test-key', model: 'm', wav: silentWav(1) }), '');
+  setAsr(null);
+  server.close();
+});
+
 test('report renders markdown and html', () => {
   const i = { name: '张三', position: 'Agent', createdAt: '2026-10-21T08:00:00Z', notes: '<b>注意</b>', evaluation: prompts.normalizeEvaluation(mock.EVAL) };
   assert.match(report.toMarkdown(i), /\| 专业度 \| 2.5 \|/);

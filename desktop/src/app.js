@@ -33,7 +33,7 @@ const ignoreHandled = (err) => { if (!err.handled) { console.error(err); toast(e
 const fmtTime = (sec) => `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
 const fmtDate = (iso) => (iso ? iso.slice(0, 16).replace('T', ' ') : '');
 const allQuestions = (plan) => (plan ? plan.sections.flatMap((s) => s.questions) : []);
-const transcriptText = (i) => (i.transcript || []).map((t) => t.text).filter(Boolean).join('\n');
+const transcriptText = (i) => (i.transcript || []).filter((t) => !t.echo).map((t) => t.text).filter(Boolean).join('\n');
 // 输入框的改动先攒起来，停顿 400ms 后一次写盘；任何会重新读取面试记录的操作之前都先 flushSave，避免改动被旧数据覆盖。
 let pending = null, saveTimer = null;
 function saveField(patch) {
@@ -258,6 +258,7 @@ function renderResume(body) {
     if (!path) return;
     drop.classList.add('loading');
     try {
+      await flushSave(); // 先存下刚输入的姓名、岗位，否则导入结果会把它们覆盖回旧值
       state.interview = await call(api.resume.import(state.id, path));
       toast('简历已读取');
       renderResume(body);
@@ -340,11 +341,15 @@ main.addEventListener('click', async (e) => {
     return;
   }
   const pick = e.target.closest('[data-pick]');
-  if (pick) { state.current = pick.dataset.pick; refreshLiveQuestions(); return; }
+  if (pick) { setCurrent(allQuestions(state.interview.plan).find((q) => q.id === pick.dataset.pick)); return; }
+  const review = e.target.closest('[data-review]');
+  if (review) { runReview(allQuestions(state.interview.plan).find((q) => q.id === review.dataset.review), { manual: true }); return; }
+  const play = e.target.closest('[data-play]');
+  if (play) { playPart(Number(play.dataset.play)); return; }
   const step = e.target.closest('[data-step]');
   if (step) {
     const qs = allQuestions(state.interview.plan), k = qs.indexOf(currentQuestion(qs)) + Number(step.dataset.step);
-    if (qs[k]) { state.current = qs[k].id; refreshLiveQuestions(); }
+    if (qs[k]) setCurrent(qs[k]);
     return;
   }
   const askNext = e.target.closest('[data-ask-next]');
@@ -353,8 +358,7 @@ main.addEventListener('click', async (e) => {
     q.asked = true;
     api.interviews.save({ id: state.id, plan: state.interview.plan });
     const after = [...qs.slice(qs.indexOf(q) + 1), ...qs.slice(0, qs.indexOf(q))].find((x) => !x.asked);
-    state.current = (after || q).id;
-    refreshLiveQuestions();
+    setCurrent(after || q);
     return;
   }
   const rw = e.target.closest('[data-rewrite]');
@@ -375,6 +379,8 @@ main.addEventListener('click', async (e) => {
 // 点「开始测试」后，每说完一句就自动转写。模拟候选人：电脑朗读一段话（真的播放出来），
 // 从候选人那一路录到这句话再转写。每次进入这一步都重新测试，不沿用上次的结果。
 const SAMPLE = '您好，我叫王小明，最近两年主要在做智能体和知识库问答的项目。';
+const READ_ALOUD = '我们先从你最近做的一个项目聊起，说说你具体负责哪一块。';
+const PASS = 0.6; // 转写和应有的句子至少对上 60% 才算通过
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const freshCheck = () => ({ streams: {}, listeners: {}, inputs: [], outputs: [], testing: {}, lines: { mic: [], cand: [] }, note: {}, passed: {}, sim: null, lastClip: null, error: '' });
 let check = freshCheck();
@@ -387,6 +393,7 @@ function stopCheck() {
 async function listDevices() {
   const all = await navigator.mediaDevices.enumerateDevices();
   check.inputs = all.filter((d) => d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications');
+  check.defaultInput = all.find((d) => d.kind === 'audioinput' && d.deviceId === 'default');
   check.outputs = all.filter((d) => d.kind === 'audiooutput' && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications');
 }
 // 面对面时候选人和面试官共用麦克风，「候选人」这一路就是麦克风那一路。
@@ -400,6 +407,8 @@ function attach(key, stream) {
       const bar = document.getElementById(`meter-${key}`), dot = document.getElementById(`speak-${key}`);
       if (bar) bar.style.width = `${Math.min(100, level * 400)}%`;
       if (dot) { dot.classList.toggle('on', speaking); dot.textContent = speaking ? '● 正在说话' : '○ 安静'; }
+      // 模拟候选人时面试官的麦克风也在响：电脑里的声音漏进了麦克风（串音）。
+      if (speaking && key === 'mic' && check.sim?.key === 'cand') check.sim.micHeard = true;
     },
     onUtterance: (wav) => heard(key, wav),
   });
@@ -446,13 +455,16 @@ async function heard(key, wav) {
   else if (check.testing[key === 'cand' ? 'cand' : 'mic']) who = key === 'cand' ? 'cand' : 'mic';
   if (!who) return;
   if (who === 'mic') check.lastClip = wav;
-  const line = { text: '', status: 'pending', sim: Boolean(check.sim && who === 'cand') };
+  // 面试官读的是给定句子，模拟候选人朗读的是 SAMPLE，都能和转写比对；真人测试没有标准答案，只看有没有转出字。
+  const expected = who === 'mic' ? READ_ALOUD : check.sim ? SAMPLE : '';
+  const line = { text: '', status: 'pending', sim: Boolean(check.sim && who === 'cand'), expected };
   check.lines[who] = [line, ...check.lines[who]].slice(0, 4);
   refreshAudio();
   try {
     line.text = await call(api.audio.test(wav), { quiet: true });
-    line.status = line.text ? 'ok' : 'empty';
-    if (line.text) {
+    line.score = expected && line.text ? coverage(expected, line.text) : null;
+    line.status = !line.text ? 'empty' : line.score !== null && line.score < PASS ? 'mismatch' : 'ok';
+    if (line.status === 'ok') {
       check.passed[who] = true;
       markChecked(who === 'mic' ? 'interviewer' : 'candidate');
     }
@@ -509,6 +521,9 @@ async function simulateCandidate() {
     await playSample();
     // 朗读结束后再等一会儿，让最后一句的停顿被检测到。
     for (let t = 0; t < 25 && !check.sim.got; t++) await sleep(100);
+    check.note.crosstalk = key === 'cand' && check.sim.micHeard
+      ? '⚠ 模拟候选人说话时，你的麦克风也录到了这段声音：电脑的声音漏进了麦克风。面试时候选人的话会被记成两遍（面试官一遍、候选人一遍）。请戴耳机，或把扬声器音量调小、麦克风离扬声器远一点，再模拟一次。'
+      : '';
     check.note.sim = check.sim.got ? '' : (key === 'cand'
       ? '✗ 播放了，但候选人那一路没录到声音：确认耳机是系统默认播放设备，或换一个候选人声音来源'
       : '✗ 播放了，但麦克风没录到：把扬声器音量调大，或让麦克风离扬声器近一点再试');
@@ -541,9 +556,16 @@ async function playTone() {
 }
 const deviceOptions = (list, selected) => `<option value="" ${selected ? '' : 'selected'}>系统默认</option>${list.map((d, k) => `<option value="${esc(d.deviceId)}" ${d.deviceId === selected ? 'selected' : ''}>${esc(d.label || `设备 ${k + 1}`)}</option>`).join('')}`;
 const LINE_TEXT = { pending: '转写中…', empty: '没识别出文字：靠近一点、说清楚一点再试', error: '' };
+const pct = (x) => `${Math.round(x * 100)}%`;
 function linesHTML(lines, hint) {
   if (!lines.length) return `<p class="lines-empty">${hint}</p>`;
-  return `<ul class="lines">${lines.map((l) => `<li class="${l.status}"><b>${l.status === 'ok' ? '✓' : l.status === 'pending' ? '…' : '✗'}</b><span>${l.status === 'ok' ? `「${esc(l.text)}」${l.sim ? '<em>模拟</em>' : ''}` : esc(LINE_TEXT[l.status] || l.text)}</span></li>`).join('')}</ul>`;
+  return `<ul class="lines">${lines.map((l) => {
+    const tag = l.sim ? '<em>模拟</em>' : '';
+    const body = l.status === 'ok' ? `「${esc(l.text)}」${tag}${l.score != null ? `<small>准确 ${pct(l.score)}</small>` : ''}`
+      : l.status === 'mismatch' ? `转写出来的和${l.sim ? '朗读' : '要读'}的不一样（只对上 ${pct(l.score)}）：「${esc(l.text)}」${tag}<small>可能录到了别的声音、音量太小或离得太远</small>`
+      : esc(LINE_TEXT[l.status] || l.text);
+    return `<li class="${l.status}"><b>${l.status === 'ok' ? '✓' : l.status === 'pending' ? '…' : '✗'}</b><span>${body}</span></li>`;
+  }).join('')}</ul>`;
 }
 const meterHTML = (key) => `<div class="voice"><div class="meter"><i id="meter-${key}"></i></div><span class="speak" id="speak-${key}">○ 安静</span></div>`;
 function audioHTML() {
@@ -560,12 +582,13 @@ function audioHTML() {
     <h3><i class="spk-dot me"></i>面试官（我）</h3>
     <label class="field-row">麦克风<select id="micSelect">${deviceOptions(check.inputs, s.micId)}</select></label>
     ${meterHTML('mic')}
-    <div class="row"><button class="btn ${check.testing.mic ? '' : 'primary'}" id="testMic" ${check.listeners.mic ? '' : 'disabled'}>${check.testing.mic ? '停止测试' : '开始测试'}</button><span class="muted small">${check.testing.mic ? '请说一句话，说完停一下就会自动转写' : '点开始测试后说一句话'}</span></div>
+    <div class="row"><button class="btn ${check.testing.mic ? '' : 'primary'}" id="testMic" ${check.listeners.mic ? '' : 'disabled'}>${check.testing.mic ? '停止测试' : '开始测试'}</button><span class="muted small">${check.testing.mic ? '请读下面这句话，读完停一下就会自动转写' : '点「开始测试」，然后读下面这句话'}</span></div>
+    <p class="read-aloud">「${READ_ALOUD}」</p>
     ${linesHTML(check.lines.mic, '还没测试')}
    </section>
    <section class="panel side-card">
     <h3><i class="spk-dot them"></i>候选人</h3>
-    ${online ? `<label class="field-row">声音来源<select id="candSelect"><option value="system" ${s.candidateSource === 'system' ? 'selected' : ''}>电脑声音（会议软件里对方的声音）</option>${check.inputs.map((d) => `<option value="${esc(d.deviceId)}" ${d.deviceId === s.candidateSource ? 'selected' : ''}>输入设备：${esc(d.label)}</option>`).join('')}</select></label>
+    ${online ? `<label class="field-row">声音来源<select id="candSelect"><option value="system" ${s.candidateSource === 'system' ? 'selected' : ''}>电脑声音（会议软件里对方的声音）</option>${candidateInputs().map((d) => `<option value="${esc(d.deviceId)}" ${d.deviceId === s.candidateSource ? 'selected' : ''}>输入设备：${esc(d.label)}</option>`).join('')}</select></label>
      ${check.listeners.cand ? meterHTML('cand') : '<div class="row"><button class="btn" id="listenCand">开始监听候选人声音</button></div>'}${note(check.note.candErr)}`
     : '<p class="muted small">面对面：候选人和你共用左边的麦克风。</p>'}
     <label class="field-row">播放设备<select id="outSelect">${deviceOptions(check.outputs, s.outputId)}</select><button class="btn" id="playTone">播放测试音</button></label>
@@ -574,11 +597,17 @@ function audioHTML() {
      ${online && check.listeners.cand ? `<button class="btn" id="testCand">${check.testing.cand ? '停止真人测试' : '真人测试'}</button>` : ''}</div>
     <p class="muted small">模拟：电脑朗读「${SAMPLE}」${online ? '，从候选人那一路录下来再转写（朗读声音从系统默认播放设备出来）' : '，从扬声器播放、由麦克风录下来再转写'}。</p>
     ${note(check.note.sim)}
+    ${check.note.crosstalk ? `<p class="note warn-note">${esc(check.note.crosstalk)}</p>` : ''}
     ${linesHTML(check.lines.cand, online ? '还没测试：点「模拟候选人说话」，或对方在会议里时点「真人测试」' : '还没测试：点「模拟候选人说话」')}
    </section>
   </div>
   <div class="panel audio-next"><div>${status(check.passed.mic, '面试官转写正常')}${status(check.passed.cand, '候选人转写正常')}</div>
    <button class="btn primary big" data-tab-go="plan">下一步：生成面试题 →</button></div>`;
+}
+// 候选人的声音不能和面试官用同一个麦克风，否则两路是同一个声音。
+function candidateInputs() {
+  const mic = check.inputs.find((d) => d.deviceId === state.settings.micId) || check.defaultInput;
+  return check.inputs.filter((d) => !mic || (d.deviceId !== mic.deviceId && (!d.groupId || d.groupId !== mic.groupId)));
 }
 function renderAudio(body) {
   body.innerHTML = `<div id="audioBox">${audioHTML()}</div>`;
@@ -619,6 +648,82 @@ const SPEAKER_CLASS = { 面试官: 'me', 候选人: 'them' };
 function currentQuestion(qs) {
   return qs.find((q) => q.id === state.current) || qs.find((q) => !q.asked) || qs[0];
 }
+// ---------- 面试中 AI 副驾 ----------
+// 1. 从面试官的话里认出问到了哪道准备好的题：自动跳到这题、标为已问。
+// 2. 候选人答完（5 秒没有新的话、回答够长）：自动看要点答到了哪些，给一句点评和追问建议。
+const recNow = () => state.rec?.elapsed ?? state.interview.audioSeconds ?? 0;
+function savePlan() { api.interviews.save({ id: state.id, plan: state.interview.plan }); }
+// 这题的回答：从问到这题开始，到下一道题被问到为止，候选人说的话（分不清说话人时取全部）。
+function answerFor(q) {
+  if (q.askedAt == null) return '';
+  const qs = allQuestions(state.interview.plan);
+  const until = Math.min(...qs.map((x) => x.askedAt).filter((t) => t != null && t > q.askedAt), Infinity);
+  return (state.interview.transcript || [])
+    .filter((t) => t.text && !t.echo && t.start >= q.askedAt - 0.5 && t.start < until && t.speaker !== '面试官')
+    .sort((a, b) => a.start - b.start).map((t) => t.text).join('');
+}
+async function runReview(q, { manual = false } = {}) {
+  const answer = answerFor(q);
+  if (answer.replace(/\s/g, '').length < (manual ? 10 : 50)) {
+    if (manual) toast(q.askedAt == null ? '这题还没开始问（录音中切到这题或系统认出这题后才开始计）' : '候选人对这题说的话还太少', 'error');
+    return;
+  }
+  state.reviewing = q.id;
+  refreshLiveQuestions();
+  try {
+    q.review = await call(api.live.review(state.id, q.id, answer), { quiet: !manual });
+  } catch { /* 自动点评失败不打扰面试官 */ }
+  state.reviewing = null;
+  refreshLiveQuestions();
+}
+// 什么时候自动点评：候选人停了 5 秒；面试官又开口了（两路录音时，说明这段回答告一段落）；
+// 或者回答又多了 200 字。点评过的题，回答多出 60 字以上才重新点评。
+let reviewTimer = 0;
+function maybeReview() {
+  if (state.recState !== 'recording' || state.reviewing) return;
+  const q = currentQuestion(allQuestions(state.interview.plan));
+  const len = q ? answerFor(q).length : 0;
+  if (q && len >= 50 && (!q.review || len - q.review.chars >= 60)) runReview(q);
+}
+function scheduleReview(seg) {
+  clearTimeout(reviewTimer);
+  const q = currentQuestion(allQuestions(state.interview.plan));
+  if (q && seg?.speaker === '面试官') return maybeReview();
+  if (q && answerFor(q).length - (q.review?.chars || 0) >= 200) return maybeReview();
+  reviewTimer = setTimeout(maybeReview, 5000);
+}
+// 切换当前题：录音中第一次切到一道题时，记下从什么时候开始问；离开的那道题如果还没点评就点评一下。
+function setCurrent(q, { at = null, auto = false } = {}) {
+  const qs = allQuestions(state.interview.plan), prev = currentQuestion(qs);
+  if (state.recState !== 'idle' && q.askedAt == null) q.askedAt = at ?? recNow();
+  if (auto) q.asked = true;
+  state.current = q.id;
+  savePlan();
+  if (prev && prev !== q && !prev.review && state.recState !== 'idle') runReview(prev);
+  refreshLiveQuestions();
+  if (auto) {
+    const el = $('#liveQuestions .current');
+    if (el) { el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+  }
+}
+function detectQuestion(seg) {
+  if (state.recState !== 'recording' || !seg.text || seg.speaker === '候选人' || seg.echo?.includes(seg.index)) return;
+  const qs = allQuestions(state.interview.plan);
+  const hit = matchQuestion(seg.text, qs);
+  if (!hit) return;
+  if (hit.q === currentQuestion(qs) && hit.q.askedAt != null) return;
+  setCurrent(hit.q, { at: seg.start, auto: true });
+}
+function copilotHTML(q) {
+  const r = q.review, busy = state.reviewing === q.id;
+  const LEVEL = { 好: 'good', 一般: 'mid', 弱: 'weak' };
+  return `<div class="copilot">
+    <div class="copilot-head"><b>AI 副驾</b><span class="muted">${busy ? '正在看候选人的回答…' : r ? `答完后自动点评 · ${new Date(r.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : '候选人答完会自动点评；也可以随时点右边'}</span>
+     <button class="link" data-review="${q.id}" ${busy ? 'disabled' : ''}>${r ? '重新点评' : '看看答得怎样'}</button></div>
+    ${r ? `<p class="copilot-comment"><i class="lvl ${LEVEL[r.level] || 'mid'}">${esc(r.level)}</i>${esc(r.comment)}</p>
+     ${r.follow.length ? `<div class="copilot-follow"><b>可以追问</b>${r.follow.map((f) => `<p>${esc(f)}</p>`).join('')}</div>` : ''}` : ''}
+   </div>`;
+}
 function liveQuestionHTML(qs) {
   if (!qs.length) return '<p class="muted">还没有生成面试题，也可以直接录音。</p>';
   const cur = currentQuestion(qs), sec = state.interview.plan.sections.find((s) => s.questions.includes(cur));
@@ -627,12 +732,13 @@ function liveQuestionHTML(qs) {
     <div class="q-top"><i class="dim ${DIM_COLORS[cur.dim] || ''}">${esc(cur.dim)}</i><span>${esc(sec?.title || '')} · 第 ${k + 1} / ${qs.length} 题</span>
      <span class="q-actions"><button class="link" data-step="-1" ${k ? '' : 'disabled'}>← 上一题</button><button class="link" data-step="1" ${k < qs.length - 1 ? '' : 'disabled'}>下一题 →</button></span></div>
     <h3>${esc(cur.q)}</h3>
-    <ul class="points">${cur.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
+    <ul class="points ${cur.review ? 'reviewed' : ''}">${cur.points.map((p, n) => `<li class="${cur.review ? (cur.review.covered[n] ? 'hit' : 'miss') : ''}">${esc(p)}</li>`).join('')}</ul>
     ${cur.follow ? `<p class="follow"><b>追问</b>${esc(cur.follow)}</p>` : ''}
     ${cur.good || cur.bad ? `<div class="signals">${cur.good ? `<p class="good"><b>不错</b>${esc(cur.good)}</p>` : ''}${cur.bad ? `<p class="bad"><b>警惕</b>${esc(cur.bad)}</p>` : ''}</div>` : ''}
+    ${copilotHTML(cur)}
     <div class="current-actions">${cur.asked ? `<button class="btn" data-ask="${cur.id}">取消已问</button>` : ''}<button class="btn primary" data-ask-next="${cur.id}">${cur.asked ? '下一道没问的 →' : '✓ 已问，下一题'}</button></div>
    </article>
-   <div class="q-list">${state.interview.plan.sections.map((s) => `<h4>${esc(s.title)}</h4>${s.questions.map((q) => `<button class="q-row ${q === cur ? 'on' : ''} ${q.asked ? 'done' : ''}" data-pick="${q.id}"><i class="dot ${DIM_COLORS[q.dim] || ''}"></i><span>${esc(q.q)}</span><em>${q.asked ? '✓ 已问' : esc(q.dim)}</em></button>`).join('')}`).join('')}</div>`;
+   <div class="q-list">${state.interview.plan.sections.map((s) => `<h4>${esc(s.title)}</h4>${s.questions.map((q) => `<button class="q-row ${q === cur ? 'on' : ''} ${q.asked ? 'done' : ''}" data-pick="${q.id}"><i class="dot ${DIM_COLORS[q.dim] || ''}"></i><span>${esc(q.q)}</span><em>${q.review ? `<i class="lvl ${{ 好: 'good', 一般: 'mid', 弱: 'weak' }[q.review.level] || 'mid'}">${esc(q.review.level)}</i>` : ''}${q.asked ? '✓ 已问' : esc(q.dim)}</em></button>`).join('')}`).join('')}</div>`;
 }
 function renderLive(body) {
   const i = state.interview, s = state.settings, rec = state.recState;
@@ -647,6 +753,7 @@ function renderLive(body) {
       <label><input type="radio" name="recordMode" value="online" id="systemAudio" ${online ? 'checked' : ''}> 线上（戴耳机）</label></div>`
     : `<p class="hint" id="recHint">${rec === 'paused' ? '已暂停' : '录音中'} · ${esc(modeText)}</p>`}
     <div class="rec-buttons">
+     ${rec === 'idle' && (i.audioParts || (i.transcript || []).length || i.evaluation) ? '<button class="btn" id="restartInterview">重新开始面试</button>' : ''}
      ${rec === 'idle' ? `<button class="btn rec big" id="recStart">● ${i.audioParts ? '继续面试（接着录）' : '开始面试'}</button>` : ''}
      ${rec === 'recording' ? '<button class="btn big" id="recPause">暂停</button>' : ''}
      ${rec === 'paused' ? '<button class="btn big" id="recResume">继续</button>' : ''}
@@ -673,6 +780,18 @@ function renderLive(body) {
     renderLive(body);
   }));
   $('#recStart')?.addEventListener('click', startRecording);
+  $('#restartInterview')?.addEventListener('click', async () => {
+    try {
+      await flushSave();
+      const fresh = await call(api.interviews.restart(state.id));
+      if (!fresh) return;
+      state.interview = fresh;
+      state.segErrors.clear();
+      state.current = null;
+      toast('已清空，可以重新开始面试');
+      renderLive(body);
+    } catch (err) { ignoreHandled(err); }
+  });
   $('#recPause')?.addEventListener('click', () => { state.rec.pause(); state.recState = 'paused'; renderLive(body); });
   $('#recResume')?.addEventListener('click', () => { state.rec.resume(); state.recState = 'recording'; renderLive(body); });
   $('#recStop')?.addEventListener('click', stopRecording);
@@ -696,18 +815,23 @@ function refreshLiveQuestions() {
 // 只有一路麦克风或导入的文字时，转写里没有说话人，需要模型区分。
 const needsSpeakers = (i) => !i.dialogue?.length && (i.transcript || []).some((t) => t.text && !t.speaker);
 function transcriptHTML() {
-  const i = state.interview;
+  const i = state.interview, echoes = (i.transcript || []).filter((t) => t.echo).length;
+  const echoNote = echoes ? `<p class="echo-note">已去掉 ${echoes} 段重复：你的麦克风录到了候选人的声音（多半是没戴耳机、声音从扬声器出来了）。戴上耳机就不会再出现。</p>` : '';
+  return echoNote + transcriptBody(i);
+}
+function transcriptBody(i) {
   if (i.dialogue?.length) {
     return i.dialogue.map((t) => `<div class="turn ${SPEAKER_CLASS[t.speaker] || ''}"><b>${esc(t.speaker)}</b><p>${esc(t.text)}</p></div>`).join('');
   }
-  const segs = [...(i.transcript || [])].filter((s) => s.text || s.source !== 'asr');
+  const segs = [...(i.transcript || [])].filter((s) => (s.text || s.source !== 'asr') && !s.echo);
   for (const [index, e] of state.segErrors) if (!segs.some((s) => s.index === index)) segs.push({ index, start: e.start, speaker: e.speaker, error: e.error });
   segs.sort((a, b) => a.start - b.start || a.index - b.index);
   if (!segs.length) return '<p class="muted">录音开始后，转写会一段段出现在这里。也可以面试结束后导入飞书妙记、腾讯会议等导出的文字。</p>';
   return segs.map((s) => {
     const time = `<time>${s.source === 'asr' || s.error ? fmtTime(s.start) : '文本'}</time>`;
     if (s.error) return `<div class="turn err">${time}<b>${esc(s.speaker || '')}</b><p>这一段转写失败：${esc(s.error)}</p></div>`;
-    return `<div class="turn ${SPEAKER_CLASS[s.speaker] || 'plain'}">${time}${s.speaker ? `<b>${esc(s.speaker)}</b>` : ''}<p>${esc(s.text)}</p></div>`;
+    const play = s.source === 'asr' && state.recState === 'idle' ? ` data-play="${s.index}" title="点击回放这一段"` : '';
+    return `<div class="turn ${SPEAKER_CLASS[s.speaker] || 'plain'}${play ? ' playable' : ''}"${play}>${time}${s.speaker ? `<b>${esc(s.speaker)}</b>` : ''}<p>${esc(s.text)}</p></div>`;
   }).join('');
 }
 function refreshTranscript() {
@@ -723,12 +847,30 @@ api.onSegment((seg) => {
   else {
     state.segErrors.delete(seg.index);
     const tr = (state.interview.transcript || []).filter((t) => t.index !== seg.index);
-    tr.push({ index: seg.index, start: seg.start, speaker: seg.speaker, text: seg.text, source: 'asr' });
+    tr.push({ index: seg.index, start: seg.start, end: seg.end, speaker: seg.speaker, text: seg.text, source: 'asr' });
+    for (const t of tr) if (seg.echo?.includes(t.index)) t.echo = true;
     state.interview.transcript = tr;
     state.interview.dialogue = null;
+    detectQuestion(seg);
+    scheduleReview(seg);
   }
   refreshTranscript();
 });
+// 面试中途插拔耳机会切换音频设备，录音可能中断或录错设备，马上提醒。
+navigator.mediaDevices?.addEventListener('devicechange', () => {
+  if (state.recState === 'recording') toast('音频设备变了（是不是插拔了耳机？）。请确认录音和转写还在正常进行。', 'error');
+});
+// 复盘：点转写里的某一句，回放这一段录音。
+let playing = null;
+async function playPart(index) {
+  try {
+    playing?.pause();
+    const bytes = await call(api.audio.part(state.id, index));
+    playing = new Audio(URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' })));
+    if (state.settings.outputId && playing.setSinkId) await playing.setSinkId(state.settings.outputId).catch(() => {});
+    await playing.play();
+  } catch (err) { ignoreHandled(err); }
+}
 const pendingChunks = new Set();
 async function startRecording() {
   const i = state.interview, s = state.settings;
@@ -751,6 +893,9 @@ async function startRecording() {
     await rec.start({ micId: s.micId, candidate: s.recordMode === 'online' ? s.candidateSource : '', startIndex: fresh.audioParts || 0, startOffset: fresh.audioSeconds || 0 });
     state.rec = rec;
     state.recState = 'recording';
+    // 开始录音时屏幕上的那道题，就从现在开始算它的回答。
+    const first = state.interview.plan && currentQuestion(allQuestions(state.interview.plan));
+    if (first && first.askedAt == null) { first.askedAt = fresh.audioSeconds || 0; savePlan(); }
     renderLive($('#tabBody'));
   } catch (err) {
     if (err.handled) return;
@@ -864,7 +1009,7 @@ function renderEval(body) {
       <div class="panel"><h3>风险</h3><ul>${e.risks.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
       <div class="panel"><h3>下一轮建议追问</h3><ul>${e.nextRound.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
      </div>
-     <div class="panel"><h3>没覆盖到 / 证据不足</h3><p>${esc(e.gaps || '无')}</p></div></div>`;
+     <div class="panel"><h3>没覆盖到 / 证据不足</h3><p>${esc(e.gaps || '无')}</p></div>${rhythmHTML(i)}</div>`;
   }
   $('#genEval')?.addEventListener('click', () => generateEval());
   $('#exportPdf')?.addEventListener('click', () => exportReport('pdf'));
@@ -876,6 +1021,17 @@ function renderEval(body) {
     state.interview = await call(api.interviews.save({ id: state.id, evaluation: e }));
     renderEval(body);
   }));
+}
+// 回答节奏（线上两路录音才有准确时间）：说话占比、候选人开口前停多久。只做参考，不进打分。
+function rhythmHTML(i) {
+  const r = rhythm(i.transcript);
+  if (r.share == null) return '';
+  const min = (sec) => (sec >= 60 ? `${Math.floor(sec / 60)} 分 ${Math.round(sec % 60)} 秒` : `${Math.round(sec)} 秒`);
+  return `<div class="panel rhythm"><h3>回答节奏 <span class="muted small">仅供参考，不计入打分</span></h3>
+   <div class="rhythm-bar"><i style="width:${Math.round(r.share * 100)}%"></i></div>
+   <p>候选人说话 ${min(r.talk.候选人)}（${Math.round(r.share * 100)}%），面试官 ${min(r.talk.面试官)}。${r.share < 0.5 ? '面试官说得比候选人还多，可以多给对方展开的机会。' : ''}</p>
+   ${r.avg != null ? `<p>面试官问完后，候选人平均停 ${r.avg.toFixed(1)} 秒再开口（${r.waits.length} 次）。</p>` : ''}
+   ${r.steady ? `<p class="warn-note note">每次开口前都停了 ${r.avg.toFixed(1)} 秒左右，而且很一致。可能是在组织语言，也可能是在看提示工具，建议下一轮多追问具体细节、打断后换个条件再问。</p>` : ''}</div>`;
 }
 async function generateEval({ auto = false } = {}) {
   const i = state.interview;

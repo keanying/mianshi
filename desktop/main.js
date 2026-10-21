@@ -7,6 +7,7 @@ const { createSettings } = require('./lib/settings');
 const { PROVIDERS, chat, chatJSON } = require('./lib/llm');
 const { transcribe, silentWav } = require('./lib/asr');
 const { readResume, SUPPORTED } = require('./lib/resume');
+const { markEcho } = require('./src/text-match');
 const prompts = require('./lib/prompts');
 const report = require('./lib/report');
 
@@ -105,6 +106,17 @@ handle('interviews:remove', async (id) => {
   return true;
 });
 
+// 重新开始面试：清空录音、转写、评估和「已问」标记，简历和面试题保留。
+handle('interviews:restart', async (id) => {
+  const { response } = await dialog.showMessageBox(win, { type: 'warning', buttons: ['重新开始', '取消'], defaultId: 1, cancelId: 1, message: '重新开始这场面试？', detail: '这场面试的录音、转写、现场笔记和评估报告都会清空，无法恢复。简历和面试题会保留。' });
+  if (response !== 0) return null;
+  fs.rmSync(path.join(store.dirOf(id), 'audio'), { recursive: true, force: true });
+  fs.rmSync(path.join(store.dirOf(id), '完整录音.wav'), { force: true });
+  const i = store.get(id);
+  for (const q of i.plan ? i.plan.sections.flatMap((s) => s.questions) : []) { q.asked = false; delete q.askedAt; delete q.review; }
+  return store.save({ id, plan: i.plan, transcript: [], dialogue: null, evaluation: null, notes: '', parts: [], audioParts: 0, audioSeconds: 0, status: i.plan ? 'ready' : 'draft' });
+});
+
 handle('resume:pick', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(win, { title: '选择简历', properties: ['openFile'], filters: [{ name: '简历', extensions: SUPPORTED.map((e) => e.slice(1)) }] });
   return canceled ? null : filePaths[0];
@@ -137,42 +149,46 @@ handle('plan:rewrite', async (id, qid) => {
 
 // 录音分段：保存后排队转写，结果逐段推送给界面。
 // speaker：两路录音时麦克风为「面试官」、电脑声音为「候选人」；只录麦克风时为空，面试后由模型区分。
-const queues = new Map();
+// 各段并行转写（两路录音时串行会越积越慢）；「结束面试」时等所有段转完。
+const pending = new Map();
 const byTime = (a, b) => a.start - b.start || a.index - b.index;
 function addSegment(id, seg) {
   const i = store.get(id);
   const transcript = [...(i.transcript || []).filter((t) => t.index !== seg.index), seg].sort(byTime);
+  const echo = markEcho(transcript, seg);
   // 有新内容后，之前按句区分的说话人结果作废。
-  return store.save({ id, transcript, dialogue: null });
+  store.save({ id, transcript, dialogue: null });
+  return echo;
 }
 async function transcribeSegment(id, part, wav) {
   const s = settings.getSecret();
   const text = part.silent ? '' : await transcribe({ baseURL: s.asrBaseURL, apiKey: s.asrKey, model: s.asrModel, wav });
-  addSegment(id, { index: part.index, start: part.start, speaker: part.speaker || '', text, source: 'asr' });
-  return text;
+  const echo = addSegment(id, { index: part.index, start: part.start, end: part.end, speaker: part.speaker || '', text, source: 'asr' });
+  return { text, echo };
 }
 handle('audio:chunk', (id, index, startSec, arrayBuffer, meta = {}) => {
   store.saveChunk(id, index, Buffer.from(arrayBuffer));
   // 记录已录到第几段、录到第几秒，「继续录音」时接着往后编号，不覆盖已有分段。
   const seconds = startSec + (arrayBuffer.byteLength - 44) / 32000;
-  const part = { index, start: startSec, speaker: meta.speaker || '', silent: Boolean(meta.silent) };
+  const part = { index, start: startSec, end: seconds, speaker: meta.speaker || '', silent: Boolean(meta.silent) };
   const cur = store.get(id);
   store.save({ id, audioParts: Math.max(cur.audioParts || 0, index + 1), audioSeconds: Math.max(cur.audioSeconds || 0, seconds), parts: [...(cur.parts || []).filter((p) => p.index !== index), part] });
   if (!settings.getSecret().asrEnabled) return { queued: false };
-  const prev = queues.get(id) || Promise.resolve();
-  const next = prev.then(async () => {
+  if (!pending.has(id)) pending.set(id, new Set());
+  const job = (async () => {
     try {
-      const text = await transcribeSegment(id, part, Buffer.from(arrayBuffer));
-      send('asr:segment', { id, ...part, text });
+      const { text, echo } = await transcribeSegment(id, part, Buffer.from(arrayBuffer));
+      send('asr:segment', { id, ...part, text, echo });
     } catch (err) {
       send('asr:segment', { id, ...part, error: err.message });
     }
-  });
-  queues.set(id, next);
+  })();
+  pending.get(id).add(job);
+  job.finally(() => pending.get(id).delete(job));
   return { queued: true };
 });
 handle('audio:finish', async (id) => {
-  await (queues.get(id) || Promise.resolve());
+  await Promise.all([...(pending.get(id) || [])]);
   const file = store.mergeAudio(id, store.get(id).parts);
   return { file, interview: store.save({ id, status: 'done' }) };
 });
@@ -208,8 +224,8 @@ handle('audio:retranscribe', async (id) => {
     const index = Number(f.match(/\d+/)[0]);
     const part = { ...((i.parts || []).find((p) => p.index === index) || { index, start: index * s.chunkSeconds, speaker: '' }), silent: false };
     try {
-      const text = await transcribeSegment(id, part, fs.readFileSync(path.join(dir, f)));
-      send('asr:segment', { id, ...part, text });
+      const { text, echo } = await transcribeSegment(id, part, fs.readFileSync(path.join(dir, f)));
+      send('asr:segment', { id, ...part, text, echo });
       done++;
     } catch (err) {
       send('asr:segment', { id, ...part, error: err.message });
@@ -217,6 +233,24 @@ handle('audio:retranscribe', async (id) => {
     }
   }
   return { done, failed, interview: store.get(id) };
+});
+// 复盘：取某一段录音，界面点转写的某一句就能回放。
+handle('audio:part', (id, index) => {
+  const file = path.join(store.dirOf(id), 'audio', `part-${String(index).padStart(4, '0')}.wav`);
+  if (!fs.existsSync(file)) throw new Error('这一段的录音不在了。');
+  return fs.readFileSync(file);
+});
+// 面试中 AI 副驾：候选人答完一题后，看要点覆盖了哪些、给出追问建议。
+handle('live:review', async (id, qid, answer) => {
+  const i = store.get(id);
+  const question = i.plan?.sections.flatMap((s) => s.questions).find((q) => q.id === qid);
+  if (!question) throw new Error('找不到这道题。');
+  const raw = await chatJSON(llmOptions({ messages: prompts.reviewMessages({ question, answer }), temperature: 0.2, timeoutMs: 60000 }));
+  const review = { ...prompts.normalizeReview(raw, question.points.length), chars: answer.length, at: new Date().toISOString() };
+  // 点评期间面试官可能又标了已问：重新读一遍再写，避免覆盖。
+  const fresh = store.get(id), target = fresh.plan?.sections.flatMap((s) => s.questions).find((q) => q.id === qid);
+  if (target) { target.review = review; store.save({ id, plan: fresh.plan }); }
+  return review;
 });
 handle('audio:open', (id) => {
   const file = path.join(store.dirOf(id), '完整录音.wav');

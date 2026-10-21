@@ -130,7 +130,7 @@ function splitSentences(transcript) {
   const out = [];
   for (const t of transcript || []) {
     const text = String(t.text || '').trim();
-    if (!text) continue;
+    if (!text || t.echo) continue;
     const parts = text.match(/[^。！？!?；;\n]+[。！？!?；;]*/g) || [text];
     for (let p of parts) {
       p = p.trim();
@@ -180,9 +180,30 @@ function buildDialogue(sentences, raw) {
 // 送去评估的转写：优先用区分好说话人的对话，其次用分路录音自带的说话人，最后才是原始文字。
 function transcriptForEval(i) {
   if (i.dialogue?.length) return i.dialogue.map((t) => `${t.speaker}：${t.text}`).join('\n');
-  const segs = (i.transcript || []).filter((t) => t.text);
+  const segs = (i.transcript || []).filter((t) => t.text && !t.echo);
   if (segs.some((t) => t.speaker)) return segs.map((t) => (t.speaker ? `${t.speaker}：${t.text}` : t.text)).join('\n');
   return segs.map((t) => t.text).join('\n');
+}
+
+// ---------- 面试中 AI 副驾 ----------
+// 候选人答完一题：对照回答要点看覆盖了哪些，给一句点评和 1~2 个追问。要快，所以输出很短。
+function reviewMessages({ question, answer }) {
+  return [
+    { role: 'system', content: `你在面试现场给面试官做助手。根据候选人刚才的回答（语音转写，可能有错字），快速判断这道题答得怎样。说大白话，简短。只输出 JSON。` },
+    {
+      role: 'user',
+      content: `题目：${question.q}\n回答要点：\n${question.points.map((p, k) => `${k + 1}. ${p}`).join('\n')}\n${question.follow ? `准备好的追问：${question.follow}\n` : ''}\n候选人的回答：\n"""\n${String(answer).slice(-3000)}\n"""\n\n只输出：{"covered": [每条要点是否答到，true/false，顺序同上], "level": "好 | 一般 | 弱", "comment": "一句话点评（不超过 40 字）", "follow": ["建议马上追问的一句话（大白话），1~2 条"]}`,
+    },
+  ];
+}
+function normalizeReview(raw, pointCount) {
+  const covered = Array.from({ length: pointCount }, (_, k) => raw?.covered?.[k] === true);
+  return {
+    covered,
+    level: ['好', '一般', '弱'].includes(raw?.level) ? raw.level : '一般',
+    comment: String(raw?.comment || '').slice(0, 80),
+    follow: (Array.isArray(raw?.follow) ? raw.follow : []).map(String).filter(Boolean).slice(0, 2),
+  };
 }
 
 // 把模型输出整理成稳定结构，缺字段时补默认值，分数限制在 0~5、步长 0.5。
@@ -240,4 +261,4 @@ function normalizeEvaluation(raw) {
   };
 }
 
-module.exports = { DIMENSIONS, questionMessages, rewriteMessages, evaluationMessages, normalizeQuestions, normalizeEvaluation, splitSentences, speakerMessages, buildDialogue, transcriptForEval };
+module.exports = { DIMENSIONS, questionMessages, rewriteMessages, evaluationMessages, normalizeQuestions, normalizeEvaluation, splitSentences, speakerMessages, buildDialogue, transcriptForEval, reviewMessages, normalizeReview };

@@ -25,6 +25,7 @@ const EVAL = {
   strengths: ['表达有条理'], risks: ['应变偏弱'], nextRound: ['问问模型微调项目'], gaps: '微调项目没问到',
 };
 
+const control = { asr: null };
 function start(port = 0) {
   const calls = [];
   const server = http.createServer((req, res) => {
@@ -36,7 +37,8 @@ function start(port = 0) {
       if (req.headers.authorization !== 'Bearer test-key') { res.writeHead(401); res.end('{"error":"bad key"}'); return; }
       if (req.url.endsWith('/audio/transcriptions')) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ text: `第${calls.filter((c) => c.url.endsWith('/audio/transcriptions')).length}段：候选人说我觉得可能就需要重新生成了，向量库那边做一个幂等更新，有重复的证据就不再写入。` }));
+        // 测试可以用 setAsr(text) 指定识别结果（例如模拟面试官问出某道题）；不指定时返回一段候选人的回答。
+        res.end(JSON.stringify({ text: control.asr ?? `第${calls.filter((c) => c.url.endsWith('/audio/transcriptions')).length}段：候选人说我觉得可能就需要重新生成了，向量库那边做一个幂等更新，有重复的证据就不再写入。` }));
         return;
       }
       if (!req.url.endsWith('/chat/completions')) { res.writeHead(404); res.end(); return; }
@@ -52,6 +54,7 @@ function start(port = 0) {
       if (prompt.includes('请准备大约')) answer = '```json\n' + JSON.stringify(PLAN) + '\n```';
       else if (prompt.includes('五个维度评估')) answer = JSON.stringify(EVAL);
       else if (prompt.includes('请区分说话人')) answer = JSON.stringify({ turns: [{ from: 1, to: 1, speaker: '面试官' }, { from: 2, to: 999, speaker: '候选人' }] });
+      else if (prompt.includes('面试现场给面试官做助手')) answer = JSON.stringify({ covered: [true, false], level: '一般', comment: '思路对，但没说怎么判断哪些资料是新的', follow: ['你怎么知道哪些章节要重写？'] });
       else if (prompt.includes('换一种更口语')) answer = JSON.stringify({ q: '换个说法：报告是怎么生成的？', points: ['数据来源', '对比方式'], follow: '最难的一步？' });
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       // 先发一段 reasoning_content 模拟思考模型，再分块发正文。
@@ -67,7 +70,7 @@ function start(port = 0) {
       })();
     });
   });
-  return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve({ server, calls, url: `http://127.0.0.1:${server.address().port}` })));
+  return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve({ server, calls, setAsr: (text) => { control.asr = text; }, url: `http://127.0.0.1:${server.address().port}` })));
 }
 
 module.exports = { start, PLAN, EVAL };
