@@ -41,10 +41,17 @@ function start(port = 0) {
       }
       if (!req.url.endsWith('/chat/completions')) { res.writeHead(404); res.end(); return; }
       const payload = JSON.parse(body.toString('utf8'));
+      // 模拟不支持关闭思考的模型（如 GLM-5.3）：带 thinking.disabled 时报 400。
+      if (payload.model === 'always-think' && payload.thinking?.type === 'disabled') {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end('{"error":{"message":"thinking.type=disabled is not supported for this model"}}');
+        return;
+      }
       const prompt = payload.messages.map((m) => m.content).join('\n');
       let answer = '正常';
       if (prompt.includes('请准备大约')) answer = '```json\n' + JSON.stringify(PLAN) + '\n```';
       else if (prompt.includes('五个维度评估')) answer = JSON.stringify(EVAL);
+      else if (prompt.includes('请区分说话人')) answer = JSON.stringify({ turns: [{ from: 1, to: 1, speaker: '面试官' }, { from: 2, to: 999, speaker: '候选人' }] });
       else if (prompt.includes('换一种更口语')) answer = JSON.stringify({ q: '换个说法：报告是怎么生成的？', points: ['数据来源', '对比方式'], follow: '最难的一步？' });
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       // 先发一段 reasoning_content 模拟思考模型，再分块发正文。

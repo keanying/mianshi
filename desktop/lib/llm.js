@@ -11,7 +11,9 @@ const PROVIDERS = {
   deepseek: {
     label: 'DeepSeek',
     baseURL: 'https://api.deepseek.com',
-    models: ['deepseek-chat', 'deepseek-reasoner'],
+    // deepseek-chat / deepseek-reasoner 已于 2026-07-24 下线；思考与否改由 thinking 参数控制。
+    models: ['deepseek-v4-pro', 'deepseek-v4-flash'],
+    retired: { 'deepseek-chat': 'deepseek-v4-pro', 'deepseek-reasoner': 'deepseek-v4-pro' },
     asr: false,
   },
   custom: { label: '自定义（OpenAI 兼容）', baseURL: '', models: [], asr: false },
@@ -65,7 +67,19 @@ async function readStream(response, onDelta) {
   return text;
 }
 
-async function chat({ baseURL, apiKey, model, messages, temperature = 0.4, onDelta, timeoutMs = 300000 }) {
+// thinking 为 false 时请求关闭深度思考（智谱、DeepSeek 都用 {"thinking": {"type": "disabled"}}）：出题和评估更快、更省。
+// 个别模型不支持关闭（如 GLM-5.3），或兼容网关不认这个参数，返回 400 时去掉它重试一次。
+async function chat(options) {
+  if (options.thinking !== false) return send(options, false);
+  try {
+    return await send(options, true);
+  } catch (err) {
+    if (err.status === 400 && /thinking/i.test(err.detail || '')) return send(options, false);
+    throw err;
+  }
+}
+
+async function send({ baseURL, apiKey, model, messages, temperature = 0.4, onDelta, timeoutMs = 300000 }, noThinking) {
   if (!baseURL || !model) throw new LLMError('还没有配置模型，请先到「设置」里填写。');
   if (!apiKey) throw new LLMError('还没有填写 API Key，请先到「设置」里填写。');
   const controller = new AbortController();
@@ -76,7 +90,7 @@ async function chat({ baseURL, apiKey, model, messages, temperature = 0.4, onDel
       response = await fetch(joinURL(baseURL, '/chat/completions'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, messages, temperature, stream: true }),
+        body: JSON.stringify({ model, messages, temperature, stream: true, ...(noThinking ? { thinking: { type: 'disabled' } } : {}) }),
         signal: controller.signal,
       });
     } catch (err) {

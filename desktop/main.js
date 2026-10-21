@@ -63,7 +63,7 @@ const send = (channel, payload) => win && !win.isDestroyed() && win.webContents.
 
 function llmOptions(extra = {}) {
   const s = settings.getSecret();
-  return { baseURL: s.baseURL, apiKey: s.apiKey, model: s.model, ...extra };
+  return { baseURL: s.baseURL, apiKey: s.apiKey, model: s.model, thinking: s.thinking, ...extra };
 }
 
 handle('app:info', () => ({ providers: PROVIDERS, dimensions: prompts.DIMENSIONS, dataDir: app.getPath('userData'), version: app.getVersion(), platform: process.platform }));
@@ -125,27 +125,36 @@ handle('plan:rewrite', async (id, qid) => {
 });
 
 // 录音分段：保存后排队转写，结果逐段推送给界面。
+// speaker：两路录音时麦克风为「面试官」、电脑声音为「候选人」；只录麦克风时为空，面试后由模型区分。
 const queues = new Map();
-handle('audio:chunk', (id, index, startSec, arrayBuffer) => {
+const byTime = (a, b) => a.start - b.start || a.index - b.index;
+function addSegment(id, seg) {
+  const i = store.get(id);
+  const transcript = [...(i.transcript || []).filter((t) => t.index !== seg.index), seg].sort(byTime);
+  // 有新内容后，之前按句区分的说话人结果作废。
+  return store.save({ id, transcript, dialogue: null });
+}
+async function transcribeSegment(id, part, wav) {
+  const s = settings.getSecret();
+  const text = part.silent ? '' : await transcribe({ baseURL: s.asrBaseURL, apiKey: s.asrKey, model: s.asrModel, wav });
+  addSegment(id, { index: part.index, start: part.start, speaker: part.speaker || '', text, source: 'asr' });
+  return text;
+}
+handle('audio:chunk', (id, index, startSec, arrayBuffer, meta = {}) => {
   store.saveChunk(id, index, Buffer.from(arrayBuffer));
   // 记录已录到第几段、录到第几秒，「继续录音」时接着往后编号，不覆盖已有分段。
   const seconds = startSec + (arrayBuffer.byteLength - 44) / 32000;
+  const part = { index, start: startSec, speaker: meta.speaker || '', silent: Boolean(meta.silent) };
   const cur = store.get(id);
-  store.save({ id, audioParts: Math.max(cur.audioParts || 0, index + 1), audioSeconds: Math.max(cur.audioSeconds || 0, seconds) });
-  const s = settings.getSecret();
-  if (!s.asrEnabled) return { queued: false };
+  store.save({ id, audioParts: Math.max(cur.audioParts || 0, index + 1), audioSeconds: Math.max(cur.audioSeconds || 0, seconds), parts: [...(cur.parts || []).filter((p) => p.index !== index), part] });
+  if (!settings.getSecret().asrEnabled) return { queued: false };
   const prev = queues.get(id) || Promise.resolve();
   const next = prev.then(async () => {
     try {
-      const text = await transcribe({ baseURL: s.asrBaseURL, apiKey: s.asrKey, model: s.asrModel, wav: Buffer.from(arrayBuffer) });
-      const i = store.get(id);
-      const transcript = (i.transcript || []).filter((t) => t.index !== index);
-      transcript.push({ index, start: startSec, text, source: 'asr' });
-      transcript.sort((a, b) => a.index - b.index);
-      store.save({ id, transcript });
-      send('asr:segment', { id, index, start: startSec, text });
+      const text = await transcribeSegment(id, part, Buffer.from(arrayBuffer));
+      send('asr:segment', { id, ...part, text });
     } catch (err) {
-      send('asr:segment', { id, index, start: startSec, error: err.message });
+      send('asr:segment', { id, ...part, error: err.message });
     }
   });
   queues.set(id, next);
@@ -153,7 +162,7 @@ handle('audio:chunk', (id, index, startSec, arrayBuffer) => {
 });
 handle('audio:finish', async (id) => {
   await (queues.get(id) || Promise.resolve());
-  const file = store.mergeAudio(id);
+  const file = store.mergeAudio(id, store.get(id).parts);
   return { file, interview: store.save({ id, status: 'done' }) };
 });
 handle('audio:retry', async (id) => {
@@ -161,18 +170,26 @@ handle('audio:retry', async (id) => {
   const i = store.get(id), s = settings.getSecret();
   const dir = path.join(store.dirOf(id), 'audio');
   const done = new Set((i.transcript || []).filter((t) => t.source === 'asr' && t.text !== undefined).map((t) => t.index));
-  const parts = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /^part-\d+\.wav$/.test(f)) : [];
+  const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /^part-\d+\.wav$/.test(f)) : [];
   let fixed = 0;
-  for (const f of parts) {
+  for (const f of files) {
     const index = Number(f.match(/\d+/)[0]);
     if (done.has(index)) continue;
-    const text = await transcribe({ baseURL: s.asrBaseURL, apiKey: s.asrKey, model: s.asrModel, wav: fs.readFileSync(path.join(dir, f)) });
-    const cur = store.get(id);
-    cur.transcript = [...(cur.transcript || []), { index, start: index * s.chunkSeconds, text, source: 'asr' }].sort((a, b) => a.index - b.index);
-    store.save({ id, transcript: cur.transcript });
+    const part = (i.parts || []).find((p) => p.index === index) || { index, start: index * s.chunkSeconds, speaker: '' };
+    await transcribeSegment(id, part, fs.readFileSync(path.join(dir, f)));
     fixed++;
   }
   return { fixed, interview: store.get(id) };
+});
+handle('transcript:speakers', async (id) => {
+  const i = store.get(id), sentences = prompts.splitSentences(i.transcript);
+  if (!sentences.length) throw new Error('还没有转写内容。');
+  const raw = await chatJSON(llmOptions({
+    messages: prompts.speakerMessages({ sentences, questions: i.plan ? i.plan.sections.flatMap((s) => s.questions) : [] }),
+    temperature: 0,
+    onDelta: (p) => send('llm:progress', { id, task: 'speakers', ...p }),
+  }));
+  return store.save({ id, dialogue: prompts.buildDialogue(sentences, raw) });
 });
 handle('transcript:pick', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(win, { title: '导入会议转写', properties: ['openFile'], filters: [{ name: '文本', extensions: ['txt', 'md', 'srt', 'vtt'] }] });
@@ -183,7 +200,7 @@ handle('transcript:pick', async () => {
 
 handle('eval:generate', async (id) => {
   const i = store.get(id);
-  const transcript = (i.transcript || []).map((t) => t.text).filter(Boolean).join('\n');
+  const transcript = prompts.transcriptForEval(i);
   if (transcript.replace(/\s/g, '').length < 50) throw new Error('转写内容太少，没法评估。请先录音转写，或导入会议转写文本。');
   const questions = i.plan ? i.plan.sections.flatMap((s) => s.questions) : [];
   const raw = await chatJSON(llmOptions({
