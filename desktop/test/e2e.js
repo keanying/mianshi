@@ -64,7 +64,10 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   check(true, 'PDF résumé imported');
   await shot('2-resume');
   await page.click('#genPlan');
-  await page.waitForSelector('.section .q', { timeout: 30000 });
+  await page.waitForSelector('#stream-plan .q.streaming', { timeout: 30000 });
+  check(true, 'questions stream in while the plan is being generated');
+  await shot('3-plan-streaming');
+  await page.waitForSelector('.section .q:not(.streaming)', { timeout: 30000 });
   check((await page.locator('.section .q').count()) === 4, 'plan shows 4 questions in sections');
   check((await page.textContent('.plan')).includes('竞品分析平台'), 'plan shows generated plain-language question');
   await page.locator('[data-rewrite]').nth(1).click();
@@ -75,6 +78,14 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
 
   // 3. 面试中：录音约 12 秒（两段），边录边转写
   await page.click('[data-tab-go=live]');
+  // 面试前检查：麦克风有声音、试录 5 秒能转写出文字。
+  await page.waitForSelector('#checkBox #micSelect');
+  await page.waitForSelector('#heard-mic.ok', { timeout: 15000 });
+  check(true, 'device check: microphone level detected');
+  await page.click('#testMic');
+  await page.waitForSelector('.check-result.ok', { timeout: 30000 });
+  check((await page.textContent('.check-result.ok')).includes('转写正常'), 'device check: test clip transcribed');
+  await shot('4-check');
   await page.click('#recStart');
   await page.waitForSelector('#recStop').catch(async () => { await shot('err-live'); console.log('TOAST', await page.textContent('#toast')); });
   await page.waitForTimeout(3000);
@@ -108,7 +119,9 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   // 4. 评估、改分、导出
   await page.click('.steps [data-tab=eval]');
   await page.click('#genEval').catch(async (e) => { await shot('err-eval'); console.log('EVALBTN', await page.textContent('#tabBody')); throw e; });
-  await page.waitForSelector('.dim-card', { timeout: 30000 });
+  await page.waitForSelector('#stream-eval .dim-card', { timeout: 30000 });
+  check(true, 'evaluation streams in dimension by dimension');
+  await page.waitForSelector('.dim-card select', { timeout: 30000 });
   check((await page.locator('.dim-card').count()) === 5, 'five dimensions scored');
   check((await page.textContent('.verdict-panel')).includes('待定'), 'verdict shown');
   await page.selectOption('[data-score="0"]', '3');

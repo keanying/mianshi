@@ -14,9 +14,55 @@ function encodeWav(int16) {
   return buffer;
 }
 
-// 按停顿切段：攒够 minSeconds 后遇到 PAUSE 秒的安静就切，最长不超过 chunkSeconds。
-// 一段里几乎没有声音时标记 silent，主进程不送去转写（省钱，也避免转写服务把噪声识别成文字）。
-const MIN_SECONDS = 4, PAUSE = 0.6, QUIET = 0.012, SPEECH = 0.02;
+// 按停顿切段：攒够 MIN_SECONDS 后遇到 PAUSE 秒的安静就切，最长不超过 chunkSeconds，转写因此接近实时。
+// 一段里完全没有声音（连轻声说话都没有）时标记 silent，主进程不送去转写。阈值故意放得很低，
+// 宁可多转写几段空白，也不能把声音小的说话当成静音丢掉。
+const MIN_SECONDS = 2.5, PAUSE = 0.5, QUIET = 0.01, SPEECH = 0.004;
+
+// 麦克风约束：deviceId 为空时用系统默认设备。
+const micConstraints = (deviceId) => ({ audio: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+// 候选人声音来源：system 为电脑声音（系统内录），否则是某个输入设备（如“立体声混音”、虚拟声卡）。
+async function candidateStream(source) {
+  if (!source) return null;
+  if (source === 'system') {
+    const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+    display.getVideoTracks().forEach((t) => t.stop()); // 只要声音
+    if (!display.getAudioTracks().length) throw new Error('没有拿到电脑声音');
+    return display;
+  }
+  return navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: source }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+}
+
+// 试录：从一路声音里录 seconds 秒，返回 16kHz wav，用于面试前检查转写是否正常。
+async function recordClip(stream, seconds = 5) {
+  const ctx = new AudioContext(), source = ctx.createMediaStreamSource(stream), processor = ctx.createScriptProcessor(4096, 1, 1);
+  const ratio = ctx.sampleRate / TARGET_RATE, chunks = [];
+  let pos = 0, length = 0;
+  source.connect(processor);
+  processor.connect(ctx.destination);
+  await new Promise((resolve) => {
+    processor.onaudioprocess = (e) => {
+      const input = e.inputBuffer.getChannelData(0), out = new Int16Array(Math.floor((input.length - pos) / ratio) + 1);
+      let n = 0;
+      for (; pos < input.length; pos += ratio) {
+        const c = Math.max(-1, Math.min(1, input[Math.floor(pos)]));
+        out[n++] = c < 0 ? c * 0x8000 : c * 0x7fff;
+      }
+      pos -= input.length;
+      chunks.push(out.subarray(0, n));
+      length += n;
+      if (length >= seconds * TARGET_RATE) resolve();
+    };
+  });
+  processor.onaudioprocess = null;
+  source.disconnect();
+  processor.disconnect();
+  await ctx.close();
+  const all = new Int16Array(length);
+  let o = 0;
+  for (const c of chunks) { all.set(c, o); o += c.length; }
+  return encodeWav(all);
+}
 
 class Track {
   constructor(rec, stream, speaker) {
@@ -93,22 +139,20 @@ class Recorder {
 
   get elapsed() { return this.tracks?.[0]?.elapsed ?? this.startOffset ?? 0; }
 
-  // systemAudio：线上面试时另录电脑声音。拿到后麦克风记为面试官、电脑声音记为候选人，分两路转写；
-  // 拿不到（或面对面面试）时只录麦克风，说话人在面试后由模型区分。
-  async start({ systemAudio = false, startIndex = 0, startOffset = 0 } = {}) {
+  // candidate：线上面试时候选人声音的来源（'system' 电脑声音，或某个输入设备 id）。拿到后麦克风记为面试官、
+  // 候选人声音单独一路，分两路转写；没有（面对面面试）时只录麦克风，说话人在面试后由模型区分。
+  async start({ micId = '', candidate = '', startIndex = 0, startOffset = 0 } = {}) {
     this.streams = [];
-    const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    const mic = await navigator.mediaDevices.getUserMedia(micConstraints(micId));
     this.streams.push(mic);
     this.systemAudioError = '';
     let display = null;
-    if (systemAudio) {
+    if (candidate) {
       try {
-        display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-        display.getVideoTracks().forEach((t) => t.stop()); // 只要声音
-        if (display.getAudioTracks().length) this.streams.push(display);
-        else { this.systemAudioError = '没有拿到电脑声音'; display = null; }
+        display = await candidateStream(candidate);
+        this.streams.push(display);
       } catch (err) {
-        this.systemAudioError = '当前系统不支持录制电脑声音';
+        this.systemAudioError = candidate === 'system' ? '当前系统录不到电脑声音' : '打不开候选人声音的输入设备';
       }
     }
     this.ctx = new AudioContext();
@@ -151,5 +195,5 @@ class Recorder {
   }
 }
 
-window.Recorder = Recorder;
+Object.assign(window, { Recorder, recordClip, candidateStream, micConstraints });
 })();

@@ -30,12 +30,18 @@
 
 1. **简历**：点左上「新建面试」，把简历 PDF / TXT 拖进来（扫描件 PDF 读不出文字，可以把内容粘贴到文本框）。填姓名、岗位，可补充岗位要求，点「生成面试题」。
 2. **面试题**：按「开场热身 → 简历里每个项目 → 岗位基础题 → 做事方式题」分组，每题都标了考察维度，附回答要点、追问、“听到什么不错 / 听到什么要警惕”。觉得不顺口的题点「换个问法」。
-3. **面试中**：左边是面试题，当前题放大显示回答要点、追问和判断信号，问完点「✓ 已问，下一题」，也可以在下面的题目列表里点任意一题；右边是转写和现场笔记。
+3. **面试前检查**（「3 面试中」页面上方，第一次录音前自动展开）：
+   - ① 选择**我的麦克风**，说几句话看音量条有没有跳，点「试录 5 秒并转写」确认能转出文字（转写的 API Key 没配好也会在这里提示）。
+   - ② 选择**耳机 / 扬声器**，点「播放测试音」确认能听到。
+   - ③ 线上面试时选择**候选人的声音**来源：默认是电脑声音（会议软件里对方的声音）；这台电脑录不到系统声音时，可以选「立体声混音」或虚拟声卡（Windows：VB-CABLE；macOS：BlackHole）。点「开始监听」，让对方说话看有没有跳动，再试录一次。
+   - 检查没问题后点「**开始面试**」，自动开始录音，面试官和候选人的话边说边转写。
+4. **面试中**：左边是面试题，当前题放大显示回答要点、追问和判断信号，问完点「✓ 已问，下一题」，也可以在下面的题目列表里点任意一题；右边是转写和现场笔记。
    - 录音前先选面试方式：**面对面**（一个麦克风录下双方）或 **线上（戴耳机）**（你的麦克风记为「面试官」、电脑里播放的声音记为「候选人」，两路分开转写，说话人直接标好）。线上录电脑声音 Windows 支持；macOS 视系统版本，不支持时会提示只录了麦克风。
-   - 录音按说话停顿切段、边录边转写（每段最长 25 秒），没有声音的段不送去转写。
+   - 录音按说话停顿切段、边录边转写（停顿就切，每段最长 15 秒），完全没声音的段不送去转写。
+   - 转写失败或当时没录上文字：在「转写」右上角点「重新转写」，用保存下来的录音整场重转；「打开录音」用系统播放器听完整录音。
    - 面对面录的、或导入的转写没有说话人，面试结束后点「区分面试官 / 候选人」，由模型逐句判断是谁说的（只判断说话人，不改动文字）。
    - 不想录音，也可以在面试后点「导入」，导入飞书妙记、腾讯会议等导出的文字；或点「编辑」直接粘贴。
-4. **评估**：点「生成评估」，按标好说话人的对话只看候选人说的话，得到五个维度的分数、理由和候选人原话依据，以及整体结论、优点、风险、下一轮建议追问。分数可以手动调整，然后「导出 PDF」或「导出 Markdown」。
+5. **评估**：点「生成评估」，按标好说话人的对话只看候选人说的话，得到五个维度的分数、理由和候选人原话依据，以及整体结论、优点、风险、下一轮建议追问。分数可以手动调整，然后「导出 PDF」或「导出 Markdown」。
 
 > **录音前请告知候选人并征得同意。** 简历和转写内容会发送给你所选的模型服务商（智谱 / DeepSeek）处理。
 
@@ -57,6 +63,50 @@
 | 某几段转写失败 | 录音结束后点「重试失败的段」；录音文件已保存，不会丢 |
 | 录不到声音 | Windows：设置 → 隐私 → 麦克风，允许桌面应用；macOS：系统设置 → 隐私与安全性 → 麦克风，勾选「面试助手」 |
 | PDF 读不出文字 | 多半是扫描件，把简历内容复制粘贴到文本框 |
+
+## 自己打包
+
+打包要在对应的系统上做：Windows 安装包在 Windows 上打，macOS 安装包在 Mac 上打。
+
+**1. 准备环境（只做一次）**
+
+- 安装 [Node.js 22 LTS](https://nodejs.org/zh-cn)（一路下一步）和 [Git](https://git-scm.com/downloads)。
+- 国内网络建议先设置镜像，否则下载 Electron 很慢或失败。
+
+  Windows（PowerShell）：
+  ```powershell
+  npm config set registry https://registry.npmmirror.com
+  $env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"
+  $env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-builder-binaries/"
+  ```
+  macOS（终端）：
+  ```bash
+  npm config set registry https://registry.npmmirror.com
+  export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
+  export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
+  ```
+  （`$env:` / `export` 只对当前窗口有效，新开窗口要重新执行。）
+
+**2. 下载代码并安装依赖**
+
+```bash
+git clone https://github.com/keanying/mianshi.git
+cd mianshi/desktop
+npm install
+npm test          # 可选：跑一遍单元测试，看到 pass 即可
+npm start         # 可选：先直接运行看看
+```
+
+**3. 打包**
+
+| 系统 | 命令 | 产物（在 `desktop/dist/` 里） |
+|---|---|---|
+| Windows | `npm run dist:win` | `interview-assistant-<版本>-win-x64.exe`（安装版）和 `…-win-x64.zip`（免安装版） |
+| macOS | `npm run dist:mac` | `interview-assistant-<版本>-mac-arm64.dmg`（M 系列芯片）和 `…-mac-x64.dmg`（Intel） |
+
+- 版本号在 `package.json` 的 `version` 字段，改了再打包，安装包文件名会跟着变。
+- 安装包没有做代码签名：Windows 首次运行如出现“Windows 已保护你的电脑”，点「更多信息 → 仍要运行」；macOS 见上面「安装」一节。
+- 不想在本机装环境：GitHub 仓库 → Actions → 「面试助手桌面版」→ 右侧「Run workflow」，几分钟后在这次运行页面底部的 Artifacts 里下载 Windows 和 macOS 安装包（每次推送 `desktop/` 的改动也会自动打包）。
 
 ## 开发
 

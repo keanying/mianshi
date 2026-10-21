@@ -60,6 +60,16 @@ function handle(channel, fn) {
   });
 }
 const send = (channel, payload) => win && !win.isDestroyed() && win.webContents.send(channel, payload);
+// 流式进度：每次带上已收到的全文，界面据此边生成边显示；最多每 100ms 发一次，最后一次总会发出。
+function progress(id, task) {
+  let last = 0, timer = null, latest = null;
+  const flush = () => { timer = null; last = Date.now(); send('llm:progress', { id, task, ...latest }); };
+  return (p) => {
+    latest = p;
+    if (Date.now() - last >= 100) flush();
+    else if (!timer) timer = setTimeout(flush, 100);
+  };
+}
 
 function llmOptions(extra = {}) {
   const s = settings.getSecret();
@@ -109,7 +119,7 @@ handle('plan:generate', async (id) => {
   if (!i.resume.trim()) throw new Error('请先上传或粘贴简历。');
   const raw = await chatJSON(llmOptions({
     messages: prompts.questionMessages({ resume: i.resume, position: i.position, jd: i.jd, count: s.questionCount }),
-    onDelta: (p) => send('llm:progress', { id, task: 'plan', ...p }),
+    onDelta: progress(id, 'plan'),
   }));
   return store.save({ id, plan: prompts.normalizeQuestions(raw), status: i.status === 'draft' ? 'ready' : i.status });
 });
@@ -181,13 +191,44 @@ handle('audio:retry', async (id) => {
   }
   return { fixed, interview: store.get(id) };
 });
+// 面试前检查：试录一小段，确认转写服务和麦克风都正常。
+handle('audio:test', async (arrayBuffer) => {
+  const s = settings.getSecret();
+  return transcribe({ baseURL: s.asrBaseURL, apiKey: s.asrKey, model: s.asrModel, wav: Buffer.from(arrayBuffer) });
+});
+// 重新转写整场录音：之前转写失败、Key 没配好或被当成静音跳过时，用保存下来的录音补救。
+handle('audio:retranscribe', async (id) => {
+  const i = store.get(id), s = settings.getSecret();
+  const dir = path.join(store.dirOf(id), 'audio');
+  const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /^part-\d+\.wav$/.test(f)).sort() : [];
+  if (!files.length) throw new Error('这场面试没有保存的录音。');
+  let done = 0, failed = 0;
+  for (const f of files) {
+    const index = Number(f.match(/\d+/)[0]);
+    const part = { ...((i.parts || []).find((p) => p.index === index) || { index, start: index * s.chunkSeconds, speaker: '' }), silent: false };
+    try {
+      const text = await transcribeSegment(id, part, fs.readFileSync(path.join(dir, f)));
+      send('asr:segment', { id, ...part, text });
+      done++;
+    } catch (err) {
+      send('asr:segment', { id, ...part, error: err.message });
+      failed++;
+    }
+  }
+  return { done, failed, interview: store.get(id) };
+});
+handle('audio:open', (id) => {
+  const file = path.join(store.dirOf(id), '完整录音.wav');
+  if (!fs.existsSync(file)) throw new Error('还没有完整录音，结束录音后会自动生成。');
+  return shell.openPath(file);
+});
 handle('transcript:speakers', async (id) => {
   const i = store.get(id), sentences = prompts.splitSentences(i.transcript);
   if (!sentences.length) throw new Error('还没有转写内容。');
   const raw = await chatJSON(llmOptions({
     messages: prompts.speakerMessages({ sentences, questions: i.plan ? i.plan.sections.flatMap((s) => s.questions) : [] }),
     temperature: 0,
-    onDelta: (p) => send('llm:progress', { id, task: 'speakers', ...p }),
+    onDelta: progress(id, 'speakers'),
   }));
   return store.save({ id, dialogue: prompts.buildDialogue(sentences, raw) });
 });
@@ -206,7 +247,7 @@ handle('eval:generate', async (id) => {
   const raw = await chatJSON(llmOptions({
     messages: prompts.evaluationMessages({ resume: i.resume, position: i.position, jd: i.jd, questions, transcript, notes: i.notes }),
     temperature: 0.2,
-    onDelta: (p) => send('llm:progress', { id, task: 'eval', ...p }),
+    onDelta: progress(id, 'eval'),
   }));
   return store.save({ id, evaluation: prompts.normalizeEvaluation(raw), status: 'evaluated' });
 });

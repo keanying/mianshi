@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld('api', {
   interviews: { list: call('interviews:list'), create: call('interviews:create'), get: call('interviews:get'), save: call('interviews:save'), remove: call('interviews:remove') },
   resume: { pick: call('resume:pick'), import: call('resume:import'), pathOf: (file) => webUtils.getPathForFile(file) },
   plan: { generate: call('plan:generate'), rewrite: call('plan:rewrite') },
-  audio: { chunk: call('audio:chunk'), finish: call('audio:finish'), retry: call('audio:retry'), askMic: call('media:askMic') },
+  audio: { chunk: call('audio:chunk'), finish: call('audio:finish'), retry: call('audio:retry'), retranscribe: call('audio:retranscribe'), test: call('audio:test'), open: call('audio:open'), askMic: call('media:askMic') },
   transcript: { pick: call('transcript:pick'), speakers: call('transcript:speakers') },
   evaluate: call('eval:generate'),
   exportReport: call('report:export'),

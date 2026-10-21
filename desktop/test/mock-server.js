@@ -56,8 +56,15 @@ function start(port = 0) {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       // 先发一段 reasoning_content 模拟思考模型，再分块发正文。
       res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: '思考中' } }] })}\n\n`);
-      for (let i = 0; i < answer.length; i += 50) res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: answer.slice(i, i + 50) } }] })}\n\n`);
-      res.end('data: [DONE]\n\n');
+      // 长回答放慢输出，模拟真实的流式生成，便于检查边生成边显示。
+      const pieces = [];
+      for (let i = 0; i < answer.length; i += 50) pieces.push(answer.slice(i, i + 50));
+      const delay = answer.length > 200 ? 60 : 0;
+      (function next() {
+        if (!pieces.length) { res.end('data: [DONE]\n\n'); return; }
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: pieces.shift() } }] })}\n\n`);
+        if (delay) setTimeout(next, delay); else next();
+      })();
     });
   });
   return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve({ server, calls, url: `http://127.0.0.1:${server.address().port}` })));
