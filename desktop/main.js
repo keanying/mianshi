@@ -15,6 +15,7 @@ if (process.env.INTERVIEW_DATA_DIR) app.setPath('userData', process.env.INTERVIE
 if (process.env.INTERVIEW_FAKE_MEDIA) {
   app.commandLine.appendSwitch('use-fake-device-for-media-stream');
   app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
+  if (process.env.INTERVIEW_FAKE_AUDIO) app.commandLine.appendSwitch('use-file-for-fake-audio-capture', process.env.INTERVIEW_FAKE_AUDIO);
 }
 
 let win, store, settings;

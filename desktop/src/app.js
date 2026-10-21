@@ -370,85 +370,152 @@ main.addEventListener('click', async (e) => {
   }
 });
 
-// ---------- 音频调试（第 2 步） ----------
-// 选麦克风 / 耳机 / 候选人声音来源，实时看音量、播放测试音、试录 5 秒并转写，确认无误再开始面试。
-const check = { mic: null, cand: null, ctx: null, meters: {}, raf: 0, inputs: [], outputs: [], heard: {}, result: {}, busy: {} };
+// ---------- 2 音频调试 ----------
+// 两路声音各挂一个说话检测（Listener）：音量条和「正在说话」只在真的有人说话时亮；
+// 点「开始测试」后，每说完一句就自动转写。模拟候选人：电脑朗读一段话（真的播放出来），
+// 从候选人那一路录到这句话再转写。每次进入这一步都重新测试，不沿用上次的结果。
+const SAMPLE = '您好，我叫王小明，最近两年主要在做智能体和知识库问答的项目。';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const freshCheck = () => ({ streams: {}, listeners: {}, inputs: [], outputs: [], testing: {}, lines: { mic: [], cand: [] }, note: {}, passed: {}, sim: null, lastClip: null, error: '' });
+let check = freshCheck();
 function stopCheck() {
-  cancelAnimationFrame(check.raf);
-  check.raf = 0;
-  for (const s of [check.mic, check.cand]) s?.getTracks().forEach((t) => t.stop());
-  check.ctx?.close().catch(() => {});
-  Object.assign(check, { mic: null, cand: null, ctx: null, meters: {} });
-}
-function meterOf(stream, key) {
-  check.ctx ||= new AudioContext();
-  const analyser = check.ctx.createAnalyser();
-  analyser.fftSize = 1024;
-  check.ctx.createMediaStreamSource(stream).connect(analyser);
-  check.meters[key] = analyser;
-  check.heard[key] = 0;
-  if (!check.raf) meterLoop();
-}
-function meterLoop() {
-  for (const [key, analyser] of Object.entries(check.meters)) {
-    const data = new Uint8Array(analyser.fftSize);
-    analyser.getByteTimeDomainData(data);
-    let peak = 0;
-    for (const v of data) peak = Math.max(peak, Math.abs(v - 128) / 128);
-    if (peak > 0.04) check.heard[key] = Date.now();
-    const bar = document.getElementById(`meter-${key}`), note = document.getElementById(`heard-${key}`);
-    if (bar) bar.style.width = `${Math.min(100, peak * 180)}%`;
-    if (note) {
-      const ok = Date.now() - check.heard[key] < 2500;
-      note.className = ok ? 'ok' : 'muted';
-      note.textContent = ok ? '✓ 有声音' : key === 'mic' ? '说几句话，看上面的条有没有跳' : '让对方说话或播放一段声音';
-    }
-  }
-  check.raf = requestAnimationFrame(meterLoop);
+  for (const l of Object.values(check.listeners)) l.close().catch(() => {});
+  for (const s of Object.values(check.streams)) s.getTracks().forEach((t) => t.stop());
+  window.speechSynthesis?.cancel();
+  check = freshCheck();
 }
 async function listDevices() {
   const all = await navigator.mediaDevices.enumerateDevices();
-  check.inputs = all.filter((d) => d.kind === 'audioinput' && d.deviceId !== 'communications');
-  check.outputs = all.filter((d) => d.kind === 'audiooutput' && d.deviceId !== 'communications');
+  check.inputs = all.filter((d) => d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications');
+  check.outputs = all.filter((d) => d.kind === 'audiooutput' && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications');
+}
+// 面对面时候选人和面试官共用麦克风，「候选人」这一路就是麦克风那一路。
+const candKey = () => (state.settings.recordMode === 'online' ? 'cand' : 'mic');
+function attach(key, stream) {
+  check.listeners[key]?.close().catch(() => {});
+  check.streams[key]?.getTracks().forEach((t) => t.stop());
+  check.streams[key] = stream;
+  check.listeners[key] = new Listener(stream, {
+    onLevel: ({ level, speaking }) => {
+      const bar = document.getElementById(`meter-${key}`), dot = document.getElementById(`speak-${key}`);
+      if (bar) bar.style.width = `${Math.min(100, level * 400)}%`;
+      if (dot) { dot.classList.toggle('on', speaking); dot.textContent = speaking ? '● 正在说话' : '○ 安静'; }
+    },
+    onUtterance: (wav) => heard(key, wav),
+  });
 }
 async function openMic() {
-  check.mic?.getTracks().forEach((t) => t.stop());
-  delete check.meters.mic;
+  let stream;
   try {
-    check.mic = await navigator.mediaDevices.getUserMedia(micConstraints(state.settings.micId));
+    stream = await navigator.mediaDevices.getUserMedia(micConstraints(state.settings.micId));
   } catch (err) {
-    // 保存的设备拔掉了：退回系统默认。
     if (!state.settings.micId) throw err;
-    state.settings = await call(api.settings.save({ micId: '' }));
-    check.mic = await navigator.mediaDevices.getUserMedia(micConstraints(''));
+    state.settings = await call(api.settings.save({ micId: '' })); // 保存的设备拔掉了：退回系统默认
+    stream = await navigator.mediaDevices.getUserMedia(micConstraints(''));
   }
-  meterOf(check.mic, 'mic');
+  attach('mic', stream);
+}
+async function openCandidate() {
+  check.note.candErr = '';
+  try {
+    attach('cand', await candidateStream(state.settings.candidateSource));
+  } catch (err) {
+    check.note.candErr = state.settings.candidateSource === 'system'
+      ? '这台电脑录不到系统声音。可以改选「立体声混音」或虚拟声卡（Windows：VB-CABLE；macOS：BlackHole）。'
+      : `打不开这个设备：${err.message}`;
+  }
 }
 async function startCheck() {
-  if (check.mic || state.recState !== 'idle') return;
+  if (check.listeners.mic || check.starting || state.recState !== 'idle') return;
+  check.starting = true;
   try {
     await call(api.audio.askMic());
     await openMic();
     await listDevices();
-    check.error = '';
+    if (state.settings.recordMode === 'online' && state.settings.candidateSource !== 'system') await openCandidate();
   } catch (err) {
     check.error = /Permission|NotAllowed/i.test(err.name + err.message) ? '没有麦克风权限：请在系统设置里允许「面试助手」使用麦克风，然后点「重新检测」。' : `打不开麦克风：${err.message}`;
   }
-  if (state.tab === 'audio') refreshAudio();
+  check.starting = false;
+  refreshAudio();
 }
-async function listenCandidate() {
-  check.cand?.getTracks().forEach((t) => t.stop());
-  delete check.meters.cand;
-  check.result.candErr = '';
+// 听到一句话：模拟候选人等待中的归候选人；否则在「开始测试」状态下归这一路。
+async function heard(key, wav) {
+  let who = null;
+  if (check.sim && check.sim.key === key) { who = 'cand'; check.sim.got = true; }
+  else if (check.testing[key === 'cand' ? 'cand' : 'mic']) who = key === 'cand' ? 'cand' : 'mic';
+  if (!who) return;
+  if (who === 'mic') check.lastClip = wav;
+  const line = { text: '', status: 'pending', sim: Boolean(check.sim && who === 'cand') };
+  check.lines[who] = [line, ...check.lines[who]].slice(0, 4);
+  refreshAudio();
   try {
-    check.cand = await candidateStream(state.settings.candidateSource);
-    meterOf(check.cand, 'cand');
+    line.text = await call(api.audio.test(wav), { quiet: true });
+    line.status = line.text ? 'ok' : 'empty';
+    if (line.text) {
+      check.passed[who] = true;
+      markChecked(who === 'mic' ? 'interviewer' : 'candidate');
+    }
   } catch (err) {
-    check.cand = null;
-    check.result.candErr = state.settings.candidateSource === 'system'
-      ? '这台电脑录不到系统声音。可以改选「立体声混音」或虚拟声卡（如 VB-CABLE、BlackHole）作为候选人声音。'
-      : `打不开这个设备：${err.message}`;
+    line.status = 'error';
+    line.text = err.message;
   }
+  refreshAudio();
+}
+function markChecked(who) {
+  const i = state.interview;
+  i.audioCheck = { ...(i.audioCheck || {}), [who]: true, at: new Date().toISOString() };
+  saveField({ audioCheck: i.audioCheck });
+}
+// 朗读用的中文语音：语音列表是异步加载的，第一次取常常是空的，要等一下。
+async function chineseVoice() {
+  const synth = window.speechSynthesis;
+  if (!synth) return null;
+  let voices = synth.getVoices();
+  if (!voices.length) {
+    await Promise.race([new Promise((r) => synth.addEventListener('voiceschanged', r, { once: true })), sleep(1500)]);
+    voices = synth.getVoices();
+  }
+  return voices.find((v) => /^zh/i.test(v.lang)) || null;
+}
+async function playSample() {
+  const zh = await chineseVoice();
+  if (zh) {
+    check.note.sim = `▶ 正在朗读（${zh.name}）：「${SAMPLE}」`;
+    refreshAudio();
+    await new Promise((resolve) => {
+      const u = new SpeechSynthesisUtterance(SAMPLE);
+      Object.assign(u, { voice: zh, lang: zh.lang, rate: 1, volume: 1, onend: resolve, onerror: resolve });
+      window.speechSynthesis.speak(u);
+      setTimeout(resolve, 12000);
+    });
+    return;
+  }
+  if (!check.lastClip) throw new Error('这台电脑没有中文朗读语音。请先在左边「开始测试」说一句话，再用你的这句录音来模拟候选人。');
+  check.note.sim = '▶ 这台电脑没有中文朗读语音，正在播放你刚才说的那句话来模拟候选人';
+  refreshAudio();
+  const audio = new Audio(URL.createObjectURL(new Blob([check.lastClip], { type: 'audio/wav' })));
+  if (state.settings.outputId && audio.setSinkId) await audio.setSinkId(state.settings.outputId).catch(() => {});
+  await Promise.race([audio.play().then(() => new Promise((r) => { audio.onended = r; })), sleep(13000)]).catch(() => {});
+}
+async function simulateCandidate() {
+  const key = candKey();
+  if (key === 'cand' && !check.listeners.cand) await openCandidate();
+  if (!check.listeners[key]) { refreshAudio(); return; }
+  check.sim = { key, got: false };
+  check.note.sim = '';
+  refreshAudio();
+  try {
+    await playSample();
+    // 朗读结束后再等一会儿，让最后一句的停顿被检测到。
+    for (let t = 0; t < 25 && !check.sim.got; t++) await sleep(100);
+    check.note.sim = check.sim.got ? '' : (key === 'cand'
+      ? '✗ 播放了，但候选人那一路没录到声音：确认耳机是系统默认播放设备，或换一个候选人声音来源'
+      : '✗ 播放了，但麦克风没录到：把扬声器音量调大，或让麦克风离扬声器近一点再试');
+  } catch (err) {
+    check.note.sim = `✗ ${err.message}`;
+  }
+  check.sim = null;
   refreshAudio();
 }
 async function playTone() {
@@ -462,128 +529,55 @@ async function playTone() {
     if (state.settings.outputId && audio.setSinkId) await audio.setSinkId(state.settings.outputId);
     osc.start();
     await audio.play();
-    await new Promise((r) => setTimeout(r, 900));
-    check.result.tone = '播放了一声「嘀」，听到了就说明耳机 / 扬声器正常';
+    await sleep(900);
+    check.note.tone = '播放了一声「嘀」，听到了说明耳机 / 扬声器正常';
   } catch (err) {
-    check.result.tone = `播放失败：${err.message}`;
+    check.note.tone = `✗ 播放失败：${err.message}`;
   }
   osc.stop();
   audio.pause();
   ctx.close();
   refreshAudio();
 }
-async function testClip(key) {
-  const stream = key === 'mic' ? check.mic : check.cand;
-  if (!stream) return;
-  check.busy[key] = true;
-  check.result[key] = '';
-  refreshAudio();
-  try {
-    const wav = await recordClip(stream, 5);
-    if (key === 'mic') check.lastClip = wav;
-    const text = await call(api.audio.test(wav), { quiet: true });
-    check.result[key] = text ? `✓ 转写正常：「${text}」` : '✗ 没识别到文字：靠近一点、大声一点再试，或换一个设备';
-    if (text) markChecked(key === 'mic' ? 'interviewer' : 'candidate');
-  } catch (err) {
-    check.result[key] = `✗ ${err.message}`;
-  }
-  check.busy[key] = false;
-  refreshAudio();
+const deviceOptions = (list, selected) => `<option value="" ${selected ? '' : 'selected'}>系统默认</option>${list.map((d, k) => `<option value="${esc(d.deviceId)}" ${d.deviceId === selected ? 'selected' : ''}>${esc(d.label || `设备 ${k + 1}`)}</option>`).join('')}`;
+const LINE_TEXT = { pending: '转写中…', empty: '没识别出文字：靠近一点、说清楚一点再试', error: '' };
+function linesHTML(lines, hint) {
+  if (!lines.length) return `<p class="lines-empty">${hint}</p>`;
+  return `<ul class="lines">${lines.map((l) => `<li class="${l.status}"><b>${l.status === 'ok' ? '✓' : l.status === 'pending' ? '…' : '✗'}</b><span>${l.status === 'ok' ? `「${esc(l.text)}」${l.sim ? '<em>模拟</em>' : ''}` : esc(LINE_TEXT[l.status] || l.text)}</span></li>`).join('')}</ul>`;
 }
-const deviceOptions = (list, selected, extra = '') => `${extra}<option value="" ${selected ? '' : 'selected'}>系统默认</option>${list.filter((d) => d.deviceId && d.deviceId !== 'default').map((d, k) => `<option value="${esc(d.deviceId)}" ${d.deviceId === selected ? 'selected' : ''}>${esc(d.label || `设备 ${k + 1}`)}</option>`).join('')}`;
-const resultLine = (text) => (text ? `<p class="check-result ${text.startsWith('✓') ? 'ok' : text.startsWith('✗') ? 'bad' : ''}">${esc(text)}</p>` : '');
-// 2 音频调试：面试官试录并转写；模拟候选人说话（电脑朗读一段话，从候选人声音那一路录下来）并转写。
-const SAMPLE = '您好，我叫王小明，最近两年主要在做智能体和知识库问答的项目。';
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-// 用系统的中文语音朗读；没有中文语音时，回放刚才面试官试录的声音。
-async function speakSample() {
-  const synth = window.speechSynthesis, voices = synth ? synth.getVoices() : [];
-  const zh = voices.find((v) => /^zh/i.test(v.lang));
-  if (zh) {
-    await new Promise((resolve) => {
-      const u = new SpeechSynthesisUtterance(SAMPLE);
-      u.voice = zh;
-      u.lang = zh.lang;
-      u.onend = resolve;
-      u.onerror = resolve;
-      synth.speak(u);
-      setTimeout(resolve, 9000);
-    });
-    return 'voice';
-  }
-  if (!check.lastClip) throw new Error('这台电脑没有中文朗读语音。请先在上面「试录 5 秒并转写」录一段自己的声音，再用它模拟候选人。');
-  const audio = new Audio(URL.createObjectURL(new Blob([check.lastClip], { type: 'audio/wav' })));
-  if (state.settings.outputId && audio.setSinkId) await audio.setSinkId(state.settings.outputId).catch(() => {});
-  await Promise.race([audio.play().then(() => new Promise((r) => { audio.onended = r; })), sleep(7000)]).catch(() => {});
-  return 'clip';
-}
-async function simulateCandidate() {
-  const online = state.settings.recordMode === 'online';
-  if (online && !check.cand) await listenCandidate();
-  const stream = online ? check.cand : check.mic;
-  if (!stream) return;
-  check.busy.sim = true;
-  check.result.cand = '';
-  refreshAudio();
-  try {
-    const clip = recordClip(stream, 7);
-    await sleep(300);
-    const how = await speakSample();
-    const text = await call(api.audio.test(await clip), { quiet: true });
-    if (text) {
-      check.result.cand = `✓ 候选人这一路能录到、能转写：「${text}」${how === 'clip' ? '（用的是你刚才试录的声音）' : ''}`;
-      markChecked('candidate');
-    } else {
-      check.result.cand = online
-        ? '✗ 没录到声音：确认耳机是系统默认输出设备，或在上面换一个候选人声音来源'
-        : '✗ 没录到声音：把扬声器音量调大，或让麦克风离扬声器近一点再试';
-    }
-  } catch (err) {
-    check.result.cand = `✗ ${err.message}`;
-  }
-  check.busy.sim = false;
-  refreshAudio();
-}
-function markChecked(who) {
-  const i = state.interview;
-  i.audioCheck = { ...(i.audioCheck || {}), [who]: true, at: new Date().toISOString() };
-  saveField({ audioCheck: i.audioCheck });
-}
+const meterHTML = (key) => `<div class="voice"><div class="meter"><i id="meter-${key}"></i></div><span class="speak" id="speak-${key}">○ 安静</span></div>`;
 function audioHTML() {
-  const s = state.settings, i = state.interview, online = s.recordMode === 'online', ok = i.audioCheck || {};
-  if (check.error) return `<div class="panel"><p class="check-result bad">${esc(check.error)}</p><button class="btn" id="recheck">重新检测</button></div>`;
+  const s = state.settings, online = s.recordMode === 'online', ck = candKey();
+  if (check.error) return `<div class="panel"><p class="note bad">${esc(check.error)}</p><button class="btn" id="recheck">重新检测</button></div>`;
   const status = (done, label) => `<span class="badge ${done ? 'ok' : ''}">${done ? '✓' : '○'} ${label}</span>`;
-  return `<div class="panel audio-step">
-   <div class="panel-head"><h2>面试方式</h2><div class="modes" role="radiogroup" aria-label="面试方式">
+  const note = (text) => (text ? `<p class="note ${text.startsWith('✗') ? 'bad' : ''}">${esc(text)}</p>` : '');
+  return `<div class="audio-top"><div class="modes" role="radiogroup" aria-label="面试方式">
     <label><input type="radio" name="recordMode" value="offline" ${online ? '' : 'checked'}> 面对面</label>
-    <label><input type="radio" name="recordMode" value="online" ${online ? 'checked' : ''}> 线上（戴耳机）</label></div></div>
-   <p class="hint">${online ? '线上面试：你的麦克风记为「面试官」，会议软件里对方的声音单独录一路记为「候选人」，两边分开实时转写。' : '面对面：一个麦克风录下双方，面试结束后由模型区分面试官和候选人。'}</p>
+    <label><input type="radio" name="recordMode" value="online" ${online ? 'checked' : ''}> 线上（戴耳机）</label></div>
+   <p class="hint">${online ? '线上：你的麦克风 = 面试官；会议软件里对方的声音单独录一路 = 候选人。' : '面对面：一个麦克风录下双方，结束后由模型区分面试官和候选人。'}</p></div>
+  <div class="audio-grid">
+   <section class="panel side-card">
+    <h3><i class="spk-dot me"></i>面试官（我）</h3>
+    <label class="field-row">麦克风<select id="micSelect">${deviceOptions(check.inputs, s.micId)}</select></label>
+    ${meterHTML('mic')}
+    <div class="row"><button class="btn ${check.testing.mic ? '' : 'primary'}" id="testMic" ${check.listeners.mic ? '' : 'disabled'}>${check.testing.mic ? '停止测试' : '开始测试'}</button><span class="muted small">${check.testing.mic ? '请说一句话，说完停一下就会自动转写' : '点开始测试后说一句话'}</span></div>
+    ${linesHTML(check.lines.mic, '还没测试')}
+   </section>
+   <section class="panel side-card">
+    <h3><i class="spk-dot them"></i>候选人</h3>
+    ${online ? `<label class="field-row">声音来源<select id="candSelect"><option value="system" ${s.candidateSource === 'system' ? 'selected' : ''}>电脑声音（会议软件里对方的声音）</option>${check.inputs.map((d) => `<option value="${esc(d.deviceId)}" ${d.deviceId === s.candidateSource ? 'selected' : ''}>输入设备：${esc(d.label)}</option>`).join('')}</select></label>
+     ${check.listeners.cand ? meterHTML('cand') : '<div class="row"><button class="btn" id="listenCand">开始监听候选人声音</button></div>'}${note(check.note.candErr)}`
+    : '<p class="muted small">面对面：候选人和你共用左边的麦克风。</p>'}
+    <label class="field-row">播放设备<select id="outSelect">${deviceOptions(check.outputs, s.outputId)}</select><button class="btn" id="playTone">播放测试音</button></label>
+    ${note(check.note.tone)}
+    <div class="row"><button class="btn primary" id="simCand" ${check.sim || (online && !check.listeners.cand && check.note.candErr) ? 'disabled' : ''}>${check.sim ? '正在模拟…' : '▶ 模拟候选人说话'}</button>
+     ${online && check.listeners.cand ? `<button class="btn" id="testCand">${check.testing.cand ? '停止真人测试' : '真人测试'}</button>` : ''}</div>
+    <p class="muted small">模拟：电脑朗读「${SAMPLE}」${online ? '，从候选人那一路录下来再转写（朗读声音从系统默认播放设备出来）' : '，从扬声器播放、由麦克风录下来再转写'}。</p>
+    ${note(check.note.sim)}
+    ${linesHTML(check.lines.cand, online ? '还没测试：点「模拟候选人说话」，或对方在会议里时点「真人测试」' : '还没测试：点「模拟候选人说话」')}
+   </section>
   </div>
-  <div class="panel audio-step">
-   <h3>① 面试官：我的麦克风</h3>
-   <div class="check-row"><select id="micSelect">${deviceOptions(check.inputs, s.micId)}</select>
-    <div class="meter"><i id="meter-mic"></i></div><span id="heard-mic" class="muted"></span>
-    <button class="btn" id="testMic" ${check.busy.mic || !check.mic ? 'disabled' : ''}>${check.busy.mic ? '请说话…5 秒' : '试录 5 秒并转写'}</button></div>
-   ${resultLine(check.result.mic)}
-  </div>
-  <div class="panel audio-step">
-   <h3>② 耳机 / 扬声器</h3>
-   <div class="check-row"><select id="outSelect">${deviceOptions(check.outputs, s.outputId)}</select><button class="btn" id="playTone">播放测试音</button></div>
-   ${resultLine(check.result.tone)}
-  </div>
-  <div class="panel audio-step">
-   <h3>③ 候选人的声音</h3>
-   ${online ? `<div class="check-row"><select id="candSelect"><option value="system" ${s.candidateSource === 'system' ? 'selected' : ''}>电脑声音（会议软件里对方的声音）</option>${check.inputs.filter((d) => d.deviceId && d.deviceId !== 'default').map((d) => `<option value="${esc(d.deviceId)}" ${d.deviceId === s.candidateSource ? 'selected' : ''}>输入设备：${esc(d.label)}</option>`).join('')}</select>
-    ${check.cand ? '<div class="meter"><i id="meter-cand"></i></div><span id="heard-cand" class="muted"></span>' : '<button class="btn" id="listenCand">开始监听</button>'}</div>
-    ${check.result.candErr ? `<p class="check-result bad">${esc(check.result.candErr)}</p>` : ''}
-    <p class="hint">「电脑声音」录的是系统默认的播放设备：请把面试用的耳机设为系统默认。录不到时，可以改选「立体声混音」或虚拟声卡（Windows：VB-CABLE；macOS：BlackHole）。</p>`
-    : '<p class="hint">面对面时候选人和你共用上面的麦克风。模拟时电脑会从扬声器读一段话，看麦克风能不能录清楚。</p>'}
-   <div class="row"><button class="btn primary" id="simCand" ${check.busy.sim ? 'disabled' : ''}>${check.busy.sim ? '正在模拟候选人说话…' : '模拟候选人说话并转写'}</button>
-    ${online && check.cand ? `<button class="btn" id="testCand" ${check.busy.cand ? 'disabled' : ''}>${check.busy.cand ? '请对方说话…5 秒' : '真人试录 5 秒'}</button>` : ''}
-    <span class="muted small">模拟内容：「${SAMPLE}」</span></div>
-   ${resultLine(check.result.cand)}
-  </div>
-  <div class="panel audio-next"><div>${status(ok.interviewer, '面试官转写正常')}${status(ok.candidate, '候选人转写正常')}</div>
+  <div class="panel audio-next"><div>${status(check.passed.mic, '面试官转写正常')}${status(check.passed.cand, '候选人转写正常')}</div>
    <button class="btn primary big" data-tab-go="plan">下一步：生成面试题 →</button></div>`;
 }
 function renderAudio(body) {
@@ -597,21 +591,27 @@ function refreshAudio() {
 main.addEventListener('change', async (e) => {
   if (!e.target.closest('#audioBox')) return;
   const id = e.target.id, value = e.target.value;
-  if (e.target.name === 'recordMode') { state.settings = await call(api.settings.save({ recordMode: value })); check.result.cand = ''; refreshAudio(); }
-  if (id === 'micSelect') { state.settings = await call(api.settings.save({ micId: value })); check.result.mic = ''; await openMic().catch((err) => { check.error = `打不开这个麦克风：${err.message}`; }); refreshAudio(); }
-  if (id === 'outSelect') { state.settings = await call(api.settings.save({ outputId: value })); check.result.tone = ''; refreshAudio(); }
-  if (id === 'candSelect') { state.settings = await call(api.settings.save({ candidateSource: value })); check.result.cand = ''; await listenCandidate(); }
+  if (e.target.name === 'recordMode') {
+    state.settings = await call(api.settings.save({ recordMode: value }));
+    check.lines.cand = [];
+    check.passed.cand = false;
+    if (value === 'online' && state.settings.candidateSource !== 'system') await openCandidate();
+    refreshAudio();
+  }
+  if (id === 'micSelect') { state.settings = await call(api.settings.save({ micId: value })); check.lines.mic = []; await openMic().catch((err) => { check.error = `打不开这个麦克风：${err.message}`; }); refreshAudio(); }
+  if (id === 'outSelect') { state.settings = await call(api.settings.save({ outputId: value })); check.note.tone = ''; refreshAudio(); }
+  if (id === 'candSelect') { state.settings = await call(api.settings.save({ candidateSource: value })); check.lines.cand = []; await openCandidate(); refreshAudio(); }
 });
-main.addEventListener('click', (e) => {
+main.addEventListener('click', async (e) => {
   if (!e.target.closest('#audioBox')) return;
   const b = e.target.closest('button');
   if (!b) return;
-  if (b.id === 'testMic') testClip('mic');
-  if (b.id === 'testCand') testClip('cand');
+  if (b.id === 'testMic') { check.testing.mic = !check.testing.mic; refreshAudio(); }
+  if (b.id === 'testCand') { check.testing.cand = !check.testing.cand; refreshAudio(); }
   if (b.id === 'simCand') simulateCandidate();
-  if (b.id === 'listenCand') listenCandidate();
+  if (b.id === 'listenCand') { await openCandidate(); refreshAudio(); }
   if (b.id === 'playTone') playTone();
-  if (b.id === 'recheck') { check.error = ''; stopCheck(); startCheck(); }
+  if (b.id === 'recheck') { stopCheck(); startCheck(); }
 });
 
 // 3 面试中：上方是录音条；左边是面试题（当前题展开，下面是题目列表），右边是转写和现场笔记。
