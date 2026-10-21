@@ -184,7 +184,9 @@ class Recorder {
     this.streams.push(mic);
     this.systemAudioError = '';
     let display = null;
-    if (candidate) {
+    if (candidate && candidate !== 'system' && candidate === micId) {
+      this.systemAudioError = '候选人和面试官选了同一个麦克风';
+    } else if (candidate) {
       try {
         display = await candidateStream(candidate);
         this.streams.push(display);

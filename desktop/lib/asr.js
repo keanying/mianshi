@@ -28,8 +28,10 @@ async function transcribe({ baseURL, apiKey, model, wav, timeoutMs = 90000 }) {
       throw new LLMError(message, { status: response.status, detail: body.slice(0, 300) });
     }
     let json;
-    try { json = JSON.parse(body); } catch { return body.trim(); }
-    return String(json.text ?? json.result ?? json.data?.text ?? '').trim();
+    try { json = JSON.parse(body); } catch { json = { text: body }; }
+    const text = String(json.text ?? json.result ?? json.data?.text ?? '').trim();
+    // 只有噪声时识别服务会返回「#」之类的符号，没有任何字的结果当作没说话。
+    return /[\p{L}\p{N}]/u.test(text) ? text : '';
   } catch (err) {
     if (err.name === 'AbortError') throw new LLMError('语音转文字超时。');
     if (err instanceof LLMError) throw err;
