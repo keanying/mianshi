@@ -1,0 +1,79 @@
+{
+  "name": "interview-assistant",
+  "productName": "面试助手",
+  "version": "1.0.0",
+  "description": "面试助手：上传简历生成大白话面试题，录音转写，按五个维度评估候选人",
+  "main": "main.js",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/unit/*.test.js",
+    "e2e": "node test/e2e.js",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "pdfjs-dist": "6.4.299"
+  },
+  "devDependencies": {
+    "electron": "44.6.0",
+    "electron-builder": "26.17.0"
+  },
+  "build": {
+    "appId": "com.mianshi.assistant",
+    "productName": "面试助手",
+    "artifactName": "interview-assistant-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "lib/**",
+      "src/**",
+      "package.json",
+      "!node_modules/@napi-rs/**"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "面试助手"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "录制面试音频，用于转写和评估候选人",
+        "NSAudioCaptureUsageDescription": "录制线上面试中对方的声音，用于转写和评估"
+      }
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office"
+    }
+  },
+  "author": "mianshi",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/keanying/mianshi.git"
+  }
+}
