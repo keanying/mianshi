@@ -196,3 +196,8 @@ textarea:focus,input:focus,select:focus{outline:2px solid var(--accent);outline-
 .grid-3 ul{font-size:13.5px;color:var(--ink-2)}
 
 @media (max-width:1180px){.grid-3{grid-template-columns:1fr}.live{grid-template-columns:1fr}.live-side{position:static}.q-list,.transcript{max-height:none;height:auto}.verdict-panel{grid-template-columns:auto 1fr}.verdict-panel .lead{grid-column:1/-1}}
+/* 流式生成 */
+.stream-head{position:sticky;top:-30px;z-index:2;display:flex;align-items:center;gap:14px;margin:-30px -4px 16px;padding:30px 4px 10px;background:var(--bg);font-size:13px}
+.stream-wait{padding:40px 0;text-align:center}
+.typing h3::after,.dim-card.typing p::after{content:"▍";margin-left:2px;color:var(--accent);animation:blink 1s steps(1) infinite}
+

@@ -132,6 +132,16 @@ test('two-track recording is mixed back onto one timeline', () => {
   assert.deepStrictEqual([pcm.readInt16LE(0), pcm.readInt16LE(12000 * 2), pcm.readInt16LE(20000 * 2)], [100, 300, 200]);
 });
 
+test('partial JSON from a stream is parsed as far as it goes', () => {
+  const { parsePartialJSON } = require('../../src/partial-json');
+  const full = JSON.stringify({ candidate: { summary: '7 年经验' }, sections: [{ title: '开场热身', questions: [{ q: '先说说你最近在做什么？', points: ['角色', '项目'] }, { q: '第二题' }] }] });
+  assert.deepStrictEqual(parsePartialJSON('```json\n' + full + '\n```'), JSON.parse(full));
+  const cut = full.indexOf('第二题') + 2; // 第二题只收到一半
+  assert.strictEqual(parsePartialJSON(full.slice(0, cut)).sections[0].questions[1].q, '第二');
+  for (let n = 20; n < full.length; n++) assert.ok(parsePartialJSON(full.slice(0, n)), `parses a prefix of length ${n}`);
+  assert.strictEqual(parsePartialJSON('还没开始'), null);
+});
+
 test('report renders markdown and html', () => {
   const i = { name: '张三', position: 'Agent', createdAt: '2026-10-21T08:00:00Z', notes: '<b>注意</b>', evaluation: prompts.normalizeEvaluation(mock.EVAL) };
   assert.match(report.toMarkdown(i), /\| 专业度 \| 2.5 \|/);

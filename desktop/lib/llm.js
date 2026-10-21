@@ -39,6 +39,7 @@ function friendlyHttpError(status, body) {
 const joinURL = (base, path) => String(base || '').replace(/\/+$/, '') + path;
 
 // 解析 SSE 流：逐行读取 "data: {...}"，累积 delta.content；reasoning_content 只计入进度不进入结果。
+// onDelta 收到已累积的正文 text，界面用它边生成边显示。
 async function readStream(response, onDelta) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -61,7 +62,7 @@ async function readStream(response, onDelta) {
       const piece = delta.content || '';
       received += piece.length + (delta.reasoning_content || '').length;
       text += piece;
-      if (onDelta) onDelta({ received, thinking: !piece && Boolean(delta.reasoning_content) });
+      if (onDelta) onDelta({ received, thinking: !piece && Boolean(delta.reasoning_content), text });
     }
   }
   return text;

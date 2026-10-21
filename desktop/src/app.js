@@ -4,7 +4,7 @@ const api = window.api;
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const main = $('#main');
-const state = { view: 'home', tab: 'resume', id: null, interview: null, info: null, settings: null, busy: {}, rec: null, recState: 'idle', segErrors: new Map() };
+const state = { view: 'home', tab: 'resume', id: null, interview: null, info: null, settings: null, busy: {}, stream: {}, rec: null, recState: 'idle', segErrors: new Map() };
 const STATUS = { draft: '待出题', ready: '已出题', done: '已面试', evaluated: '已评估' };
 const DIM_COLORS = { 专业度: 'd1', 自驱力: 'd2', 性格特质: 'd3', 逻辑思维: 'd4', 适应力: 'd5' };
 const VERDICT_CLASS = { 强烈推荐: 'v1', 推荐: 'v2', 待定: 'v3', 不推荐: 'v4' };
@@ -192,10 +192,50 @@ function renderTab() {
   ({ resume: renderResume, plan: renderPlan, live: renderLive, eval: renderEval })[state.tab](body);
 }
 const progressText = (task) => `<span class="progress" id="progress-${task}">正在连接模型…</span>`;
+// ---------- 流式预览 ----------
+// 模型边输出，界面边把已经收到的部分渲染成题目卡片 / 评估卡片（解析见 partial-json.js）。
+const streamFrames = {};
 api.onProgress((p) => {
+  if (p.id !== state.id) return;
   const el = document.getElementById(`progress-${p.task}`);
-  if (el && p.id === state.id) el.textContent = p.thinking ? `模型思考中…（${p.received} 字）` : `正在生成…已收到 ${p.received} 字`;
+  if (el) el.textContent = p.thinking && !p.text ? `模型思考中…（${p.received} 字）` : `正在生成…已收到 ${p.received} 字`;
+  if (typeof p.text !== 'string') return;
+  state.stream[p.task] = p.text;
+  if (streamFrames[p.task]) return;
+  streamFrames[p.task] = requestAnimationFrame(() => {
+    streamFrames[p.task] = 0;
+    const box = document.getElementById(`stream-${p.task}`);
+    const data = parsePartialJSON(state.stream[p.task]);
+    if (!box || !data) return;
+    // 停在底部时跟着新内容往下走；往上翻看时不打扰。
+    const scroller = document.querySelector('.main'), follow = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
+    box.innerHTML = (p.task === 'plan' ? planStreamHTML : evalStreamHTML)(data);
+    if (follow) scroller.scrollTop = scroller.scrollHeight;
+  });
 });
+const list = (xs) => (Array.isArray(xs) ? xs.filter((x) => typeof x === 'string' && x) : []);
+function planStreamHTML(p) {
+  const c = p.candidate || {}, sections = Array.isArray(p.sections) ? p.sections : [];
+  const all = sections.flatMap((s) => (Array.isArray(s?.questions) ? s.questions : []));
+  const last = all.at(-1);
+  return `<div class="panel summary"><h2>候选人速览</h2><p class="lead">${c.summary ? esc(c.summary) : '<span class="muted">正在读简历…</span>'}</p>
+    ${list(c.highlights).length ? `<h4>值得深挖</h4><ul>${list(c.highlights).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</div>
+   <div class="plan-bar"><span>已生成 ${all.filter((q) => q?.q).length} 道题</span></div>
+   ${sections.filter((s) => s?.title).map((s) => `<section class="section"><h2>${esc(s.title)}<span>${(s.questions || []).length} 题</span></h2>${(Array.isArray(s.questions) ? s.questions : []).filter((q) => q?.q).map((q) => `<article class="q streaming ${q === last ? 'typing' : ''}">
+     <div class="q-top">${q.dim ? `<i class="dim ${DIM_COLORS[q.dim] || ''}">${esc(q.dim)}</i>` : ''}${q.why ? `<span class="q-why">${esc(q.why)}</span>` : ''}${q === last ? '<span class="q-actions muted">生成中…</span>' : ''}</div>
+     <h3>${esc(q.q)}</h3>${list(q.points).length ? `<ul class="points">${list(q.points).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}${q.follow ? `<p class="follow"><b>追问</b>${esc(q.follow)}</p>` : ''}</article>`).join('')}</section>`).join('')}`;
+}
+function evalStreamHTML(e) {
+  const dims = (Array.isArray(e.dimensions) ? e.dimensions : []).filter((d) => d?.name);
+  const o = e.overall || {};
+  return `${o.verdict || o.summary ? `<div class="panel verdict-panel"><div class="verdict-big ${VERDICT_CLASS[o.verdict] || ''}">${esc(o.verdict || '…')}</div><div><div class="muted">${esc(o.level || '')}</div></div><p class="lead">${esc(o.summary || '')}</p></div>` : ''}
+   <div class="dims">${dims.map((d, k) => `<div class="panel dim-card ${k === dims.length - 1 && !o.verdict ? 'typing' : ''}">
+    <div class="dim-top"><i class="dim ${DIM_COLORS[d.name] || ''}">${esc(d.name)}</i><b>${typeof d.score === 'number' ? d.score : '…'}</b><span class="muted">/ 5</span></div>
+    <div class="score-bar"><i style="width:${typeof d.score === 'number' ? d.score / 5 * 100 : 0}%"></i></div>
+    <p>${esc(d.reason || '')}</p>${list(d.evidence).length ? `<ul class="evidence">${list(d.evidence).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</div>`).join('')}</div>
+   ${dims.length ? '' : '<p class="muted stream-wait">正在阅读转写，马上开始给分…</p>'}`;
+}
+
 
 // 1 简历
 function renderResume(body) {
@@ -234,15 +274,17 @@ async function generatePlan() {
   if (!i.resume.trim()) { toast('请先上传或粘贴简历。', 'error'); return; }
   if (i.plan && !confirm('重新生成会覆盖现有题目和「已问」标记，确定吗？')) return;
   state.busy.plan = true;
-  renderTab();
+  state.stream.plan = '';
+  // 直接切到「面试题」，边生成边显示。
+  state.tab = 'plan';
+  renderInterview();
   try {
     await flushSave();
     state.interview = await call(api.plan.generate(i.id));
-    state.busy.plan = false;
-    state.tab = 'plan';
-    renderInterview();
     toast('面试题已生成');
-  } catch (err) { state.busy.plan = false; renderTab(); ignoreHandled(err); }
+  } catch (err) { ignoreHandled(err); }
+  state.busy.plan = false;
+  if (state.view === 'interview' && state.id === i.id) renderInterview();
 }
 
 // 2 面试题
@@ -259,6 +301,11 @@ function questionCard(q, { compact = false } = {}) {
 }
 function renderPlan(body) {
   const i = state.interview, p = i.plan;
+  if (state.busy.plan) {
+    const data = parsePartialJSON(state.stream.plan);
+    body.innerHTML = `<div class="plan streaming-plan"><div class="stream-head">${progressText('plan')}<span class="muted">题目会一道道出现，生成完可以「换个问法」和标记已问</span></div><div id="stream-plan">${data ? planStreamHTML(data) : '<p class="muted stream-wait">正在读简历、准备题目…</p>'}</div></div>`;
+    return;
+  }
   if (!p) { body.innerHTML = `<div class="empty"><h3>还没有面试题</h3><p>先在「1 简历」里上传简历，再点「生成面试题」。</p><button class="btn primary" data-tab-go="resume">去上传简历</button></div>`; return; }
   const qs = allQuestions(p), asked = qs.filter((q) => q.asked).length;
   body.innerHTML = `<div class="plan">
@@ -525,7 +572,10 @@ function renderEval(body) {
   const head = `<div class="panel eval-head"><div><h2>面试评估</h2><p class="muted">根据转写${i.notes ? '和现场笔记' : ''}评估：专业度、自驱力、性格特质、逻辑思维、适应力，每项 0~5 分。转写约 ${textLen} 字。</p></div>
    <div class="actions">${state.busy.eval ? progressText('eval') : ''}<button class="btn ${e ? '' : 'primary big'}" id="genEval" ${state.busy.eval || textLen < 50 ? 'disabled' : ''}>${e ? '重新评估' : '生成评估'}</button>
    ${e ? '<button class="btn" id="exportMd">导出 Markdown</button><button class="btn primary" id="exportPdf">导出 PDF</button>' : ''}</div></div>`;
-  if (!e) {
+  if (state.busy.eval) {
+    const data = parsePartialJSON(state.stream.eval);
+    body.innerHTML = head + `<div class="eval" id="stream-eval">${data ? evalStreamHTML(data) : '<p class="muted stream-wait">正在阅读转写，马上开始给分…</p>'}</div>`;
+  } else if (!e) {
     body.innerHTML = head + (textLen < 50 ? `<div class="empty"><h3>还没有足够的转写内容</h3><p>在「3 面试中」录音，或导入会议转写文本后再来评估。</p><button class="btn" data-tab-go="live">去录音 / 导入转写</button></div>` : '');
   } else {
     const avg = average(e);
@@ -559,6 +609,7 @@ async function generateEval() {
   if (i.evaluation && !confirm('重新评估会覆盖当前评估（包括手动调整的分数），确定吗？')) return;
   await flushSave();
   state.busy.eval = true;
+  state.stream.eval = '';
   renderTab();
   try {
     state.interview = await call(api.evaluate(i.id));

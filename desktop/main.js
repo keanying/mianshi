@@ -60,6 +60,16 @@ function handle(channel, fn) {
   });
 }
 const send = (channel, payload) => win && !win.isDestroyed() && win.webContents.send(channel, payload);
+// 流式进度：每次带上已收到的全文，界面据此边生成边显示；最多每 100ms 发一次，最后一次总会发出。
+function progress(id, task) {
+  let last = 0, timer = null, latest = null;
+  const flush = () => { timer = null; last = Date.now(); send('llm:progress', { id, task, ...latest }); };
+  return (p) => {
+    latest = p;
+    if (Date.now() - last >= 100) flush();
+    else if (!timer) timer = setTimeout(flush, 100);
+  };
+}
 
 function llmOptions(extra = {}) {
   const s = settings.getSecret();
@@ -109,7 +119,7 @@ handle('plan:generate', async (id) => {
   if (!i.resume.trim()) throw new Error('请先上传或粘贴简历。');
   const raw = await chatJSON(llmOptions({
     messages: prompts.questionMessages({ resume: i.resume, position: i.position, jd: i.jd, count: s.questionCount }),
-    onDelta: (p) => send('llm:progress', { id, task: 'plan', ...p }),
+    onDelta: progress(id, 'plan'),
   }));
   return store.save({ id, plan: prompts.normalizeQuestions(raw), status: i.status === 'draft' ? 'ready' : i.status });
 });
@@ -187,7 +197,7 @@ handle('transcript:speakers', async (id) => {
   const raw = await chatJSON(llmOptions({
     messages: prompts.speakerMessages({ sentences, questions: i.plan ? i.plan.sections.flatMap((s) => s.questions) : [] }),
     temperature: 0,
-    onDelta: (p) => send('llm:progress', { id, task: 'speakers', ...p }),
+    onDelta: progress(id, 'speakers'),
   }));
   return store.save({ id, dialogue: prompts.buildDialogue(sentences, raw) });
 });
@@ -206,7 +216,7 @@ handle('eval:generate', async (id) => {
   const raw = await chatJSON(llmOptions({
     messages: prompts.evaluationMessages({ resume: i.resume, position: i.position, jd: i.jd, questions, transcript, notes: i.notes }),
     temperature: 0.2,
-    onDelta: (p) => send('llm:progress', { id, task: 'eval', ...p }),
+    onDelta: progress(id, 'eval'),
   }));
   return store.save({ id, evaluation: prompts.normalizeEvaluation(raw), status: 'evaluated' });
 });
