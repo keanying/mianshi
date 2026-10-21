@@ -18,12 +18,14 @@ function decodeText(buffer) {
 async function pdfText(buffer) {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const root = path.dirname(require.resolve('pdfjs-dist/package.json'));
+  // pdf.js 要求目录地址以 "/" 结尾；Windows 路径里的反斜杠也统一换成 "/"，否则在 Windows 上读 PDF 会报错。
+  const dirURL = (name) => `${path.join(root, name).replace(/\\/g, '/')}/`;
   const task = pdfjs.getDocument({
     data: new Uint8Array(buffer),
     // 中文 PDF 常用 CID 字体，需要 cMap 才能还原文字。
-    cMapUrl: path.join(root, 'cmaps') + path.sep,
+    cMapUrl: dirURL('cmaps'),
     cMapPacked: true,
-    standardFontDataUrl: path.join(root, 'standard_fonts') + path.sep,
+    standardFontDataUrl: dirURL('standard_fonts'),
     isEvalSupported: false,
     verbosity: 0,
     useSystemFonts: false,
