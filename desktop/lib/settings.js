@@ -10,6 +10,7 @@ const DEFAULTS = {
   baseURL: PROVIDERS.glm.baseURL,
   model: PROVIDERS.glm.models[0],
   thinking: false, // 默认关闭模型的深度思考
+  recordMode: 'offline', // offline 面对面一个麦克风；online 线上面试，另录电脑声音作为候选人
   asrEnabled: true,
   asrBaseURL: DEFAULT_ASR.baseURL,
   asrModel: DEFAULT_ASR.model,

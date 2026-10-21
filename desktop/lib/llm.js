@@ -12,8 +12,8 @@ const PROVIDERS = {
     label: 'DeepSeek',
     baseURL: 'https://api.deepseek.com',
     // deepseek-chat / deepseek-reasoner 已于 2026-07-24 下线；思考与否改由 thinking 参数控制。
-    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
-    retired: { 'deepseek-chat': 'deepseek-v4-flash', 'deepseek-reasoner': 'deepseek-v4-flash' },
+    models: ['deepseek-v4-pro', 'deepseek-v4-flash'],
+    retired: { 'deepseek-chat': 'deepseek-v4-pro', 'deepseek-reasoner': 'deepseek-v4-pro' },
     asr: false,
   },
   custom: { label: '自定义（OpenAI 兼容）', baseURL: '', models: [], asr: false },

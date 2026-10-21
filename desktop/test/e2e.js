@@ -96,6 +96,14 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   if (process.env.E2E_VERBOSE) console.log('SAVED', saved.transcript.length, JSON.stringify(saved.notes), saved.status);
   check(saved.transcript.length >= 2 && saved.notes.includes('应变偏弱'), 'transcript and notes persisted');
   check(fs.existsSync(path.join(ivDir, 'resume.pdf')), 'résumé file stored with the interview');
+  // 面试题：当前题「已问，下一题」；转写：区分面试官 / 候选人。
+  const askedBefore = await page.textContent('#askedCount');
+  await page.click('[data-ask-next]');
+  check((await page.textContent('#askedCount')) !== askedBefore && (await page.locator('.q-row.done').count()) >= 2, 'live: mark asked and move to next question');
+  await page.click('#splitSpeakers');
+  await page.waitForSelector('.turn.them', { timeout: 30000 });
+  check((await page.locator('.turn.me').count()) === 1 && (await page.textContent('.turn.them')).includes('候选人说'), 'transcript split into interviewer and candidate');
+  await shot('4-live-speakers');
 
   // 4. 评估、改分、导出
   await page.click('.steps [data-tab=eval]');
@@ -123,7 +131,7 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await shot('6-home');
 
   const evalCall = calls.find((c) => c.body.includes('五个维度评估'));
-  check(evalCall && evalCall.body.includes('应变偏弱') && evalCall.body.includes('段：候选人说'), 'evaluation prompt includes notes and transcript');
+  check(evalCall && evalCall.body.includes('应变偏弱') && evalCall.body.includes('段：候选人说') && evalCall.body.includes('候选人：'), 'evaluation prompt includes notes and the labelled transcript');
   check(errors.length === 0, `no renderer errors ${errors.join(' | ')}`);
   await app.close();
   server.close();

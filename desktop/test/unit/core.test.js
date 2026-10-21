@@ -99,7 +99,37 @@ test('settings never return the key in plain text', () => {
   assert.strictEqual(s.getSecret().apiKey, 'sk-secret-1234', 'empty input keeps the saved key');
   assert.strictEqual(s.getSecret().thinking, false, 'thinking is off by default');
   s.save({ model: 'deepseek-chat' });
-  assert.strictEqual(s.getPublic().model, 'deepseek-v4-flash', 'retired DeepSeek model names are migrated');
+  assert.strictEqual(s.getPublic().model, 'deepseek-v4-pro', 'retired DeepSeek model names are migrated');
+});
+
+test('speaker split keeps the text and labels each turn', () => {
+  const transcript = [
+    { index: 0, start: 0, text: '先简单说说你最近在做什么吧？我最近在做一个多 Agent 的竞品分析平台。主要负责检索那块。' },
+    { index: 1, start: 25, text: '检索怎么做的？' },
+  ];
+  const sentences = prompts.splitSentences(transcript);
+  assert.strictEqual(sentences.length, 4);
+  const messages = prompts.speakerMessages({ sentences, questions: [{ q: '先简单说说你最近在做什么吧？' }] });
+  assert.match(messages[1].content, /4\. 检索怎么做的？/);
+  const dialogue = prompts.buildDialogue(sentences, { turns: [{ from: 1, to: 1, speaker: '面试官' }, { from: 2, to: 3, speaker: '候选人' }, { from: 4, to: 4, speaker: '面试官' }] });
+  assert.deepStrictEqual(dialogue.map((t) => t.speaker), ['面试官', '候选人', '面试官']);
+  assert.strictEqual(dialogue.map((t) => t.text).join(''), transcript.map((t) => t.text).join(''), 'text is kept verbatim');
+  assert.match(prompts.transcriptForEval({ dialogue }), /^面试官：先简单说说/);
+  // 两路录音自带说话人，不需要模型区分。
+  assert.strictEqual(prompts.transcriptForEval({ transcript: [{ text: '你好', speaker: '面试官' }, { text: '', speaker: '候选人' }, { text: '您好', speaker: '候选人' }] }), '面试官：你好\n候选人：您好');
+});
+
+test('two-track recording is mixed back onto one timeline', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mx-'));
+  const store = createStore(dir);
+  const iv = store.create({ name: 'x' });
+  const wav = (samples) => { const b = Buffer.alloc(44 + samples.length * 2); samples.forEach((v, k) => b.writeInt16LE(v, 44 + k * 2)); return b; };
+  store.saveChunk(iv.id, 0, wav(new Array(16000).fill(100)));          // 面试官 0~1 秒
+  store.saveChunk(iv.id, 1, wav(new Array(16000).fill(200)));          // 候选人 0.5~1.5 秒
+  const file = store.mergeAudio(iv.id, [{ index: 0, start: 0, speaker: '面试官' }, { index: 1, start: 0.5, speaker: '候选人' }]);
+  const pcm = fs.readFileSync(file).subarray(44);
+  assert.strictEqual(pcm.length / 2, 24000, '1.5 seconds long');
+  assert.deepStrictEqual([pcm.readInt16LE(0), pcm.readInt16LE(12000 * 2), pcm.readInt16LE(20000 * 2)], [100, 300, 200]);
 });
 
 test('report renders markdown and html', () => {

@@ -104,7 +104,7 @@ const SCORE_GUIDE = `打分标准（0~5）：
 0 = 完全没有体现或严重不符；1 = 明显不足；2 = 偏弱，说不清或需要反复引导；3 = 合格，能说清主线；4 = 良好，有自己的思考和实际证据；5 = 优秀，讲得透、能举一反三。
 要求：
 - 每个分数都要有候选人原话或具体表现做依据；转写里没有依据的维度，不要凭简历猜，标 enough=false 并保守给分（一般不高于 2.5），在 reason 里说明。
-- 转写是语音识别结果，可能有错别字、说话人没区分；根据上下文判断哪些是候选人说的。
+- 转写是语音识别结果，可能有错别字。标了「面试官：」「候选人：」的按标注理解，只依据候选人说的话打分；没标注的根据上下文判断哪些是候选人说的。
 - 评价要具体，不要空话套话。`;
 
 function evaluationMessages({ resume, position, jd, questions, transcript, notes }) {
@@ -119,6 +119,70 @@ function evaluationMessages({ resume, position, jd, questions, transcript, notes
       content: `应聘岗位：${position || '未填写'}\n岗位要求：${jd || '未填写'}\n\n简历（供对照，不能代替面试表现）：\n"""\n${(resume || '').slice(0, 8000)}\n"""\n\n${askedList ? `面试官标记为已问的题：\n${askedList}\n\n` : ''}${notes ? `面试官现场笔记：\n${notes}\n\n` : ''}面试转写：\n"""\n${transcript}\n"""\n\n请按五个维度评估这位候选人。\n\n${EVAL_SCHEMA}`,
     },
   ];
+}
+
+// ---------- 区分说话人 ----------
+// 只录了一路麦克风（面对面面试）或导入的转写没有说话人时，把文字切成句子编号交给模型，
+// 模型只回答每句是谁说的，文字本身原样保留，不让模型改写。
+const SPEAKERS = ['面试官', '候选人'];
+
+function splitSentences(transcript) {
+  const out = [];
+  for (const t of transcript || []) {
+    const text = String(t.text || '').trim();
+    if (!text) continue;
+    const parts = text.match(/[^。！？!?；;\n]+[。！？!?；;]*/g) || [text];
+    for (let p of parts) {
+      p = p.trim();
+      // 没有标点的长句再按逗号切开，避免一句话里混着两个人。
+      while (p.length > 80) {
+        const cut = Math.max(p.lastIndexOf('，', 80), p.lastIndexOf(',', 80));
+        const at = cut > 20 ? cut + 1 : 80;
+        out.push({ text: p.slice(0, at), speaker: t.speaker || '' });
+        p = p.slice(at).trim();
+      }
+      if (p) out.push({ text: p, speaker: t.speaker || '' });
+    }
+  }
+  return out;
+}
+
+function speakerMessages({ sentences, questions }) {
+  const list = sentences.map((s, k) => `${k + 1}. ${s.speaker ? `[${s.speaker}] ` : ''}${s.text}`).join('\n');
+  const planned = (questions || []).slice(0, 40).map((q) => `- ${q.q}`).join('\n');
+  return [
+    { role: 'system', content: '你在整理面试录音的转写稿，判断每一句是面试官说的还是候选人说的。面试官通常提问、追问、介绍流程；候选人通常回答、讲自己的经历和项目。只输出 JSON。' },
+    {
+      role: 'user',
+      content: `${planned ? `面试官准备的问题（面试官大概率会这样问）：\n${planned}\n\n` : ''}转写稿已按句编号（方括号里是已知的说话人，照抄即可）：\n"""\n${list}\n"""\n\n请区分说话人：把连续同一个人说的句子归成一段，按顺序覆盖第 1 句到第 ${sentences.length} 句，不要遗漏、不要重叠。只输出：\n{"turns": [{"from": 1, "to": 3, "speaker": "面试官"}, {"from": 4, "to": 9, "speaker": "候选人"}]}`,
+    },
+  ];
+}
+
+// 按模型给出的区间给每句定说话人，缺的沿用上一句；再把连续同一人的句子合成一段。
+function buildDialogue(sentences, raw) {
+  const who = new Array(sentences.length).fill('');
+  for (const t of Array.isArray(raw?.turns) ? raw.turns : []) {
+    if (!SPEAKERS.includes(t.speaker)) continue;
+    const from = Math.max(1, Number(t.from) || 0), to = Math.min(sentences.length, Number(t.to) || 0);
+    for (let n = from; n <= to; n++) who[n - 1] = t.speaker;
+  }
+  const turns = [];
+  sentences.forEach((s, k) => {
+    const last = turns.at(-1);
+    const speaker = s.speaker || who[k] || last?.speaker || '面试官';
+    if (last && last.speaker === speaker) last.text += s.text;
+    else turns.push({ speaker, text: s.text });
+  });
+  return turns;
+}
+
+// 送去评估的转写：优先用区分好说话人的对话，其次用分路录音自带的说话人，最后才是原始文字。
+function transcriptForEval(i) {
+  if (i.dialogue?.length) return i.dialogue.map((t) => `${t.speaker}：${t.text}`).join('\n');
+  const segs = (i.transcript || []).filter((t) => t.text);
+  if (segs.some((t) => t.speaker)) return segs.map((t) => (t.speaker ? `${t.speaker}：${t.text}` : t.text)).join('\n');
+  return segs.map((t) => t.text).join('\n');
 }
 
 // 把模型输出整理成稳定结构，缺字段时补默认值，分数限制在 0~5、步长 0.5。
@@ -176,4 +240,4 @@ function normalizeEvaluation(raw) {
   };
 }
 
-module.exports = { DIMENSIONS, questionMessages, rewriteMessages, evaluationMessages, normalizeQuestions, normalizeEvaluation };
+module.exports = { DIMENSIONS, questionMessages, rewriteMessages, evaluationMessages, normalizeQuestions, normalizeEvaluation, splitSentences, speakerMessages, buildDialogue, transcriptForEval };

@@ -81,12 +81,27 @@ function createStore(root) {
     return file;
   }
 
-  // 把所有分段（16kHz 单声道 16 位 PCM）拼成一个完整录音。
-  function mergeAudio(id) {
-    const parts = fs.existsSync(audioDir(id)) ? fs.readdirSync(audioDir(id)).filter((f) => /^part-\d+\.wav$/.test(f)).sort() : [];
-    if (!parts.length) return null;
-    const pcm = parts.map((f) => fs.readFileSync(path.join(audioDir(id), f)).subarray(44));
-    const data = Buffer.concat(pcm), header = Buffer.alloc(44);
+  // 把所有分段（16kHz 单声道 16 位 PCM）合成一个完整录音。有分段时间信息（parts）时按时间叠加，
+  // 面试官和候选人两路录音因此能还原成同一条时间线；旧数据没有时间信息，按顺序拼接。
+  function mergeAudio(id, parts = []) {
+    const files = fs.existsSync(audioDir(id)) ? fs.readdirSync(audioDir(id)).filter((f) => /^part-\d+\.wav$/.test(f)).sort() : [];
+    if (!files.length) return null;
+    const pcm = files.map((f) => fs.readFileSync(path.join(audioDir(id), f)).subarray(44));
+    const starts = files.map((f) => parts.find((p) => p.index === Number(f.match(/\d+/)[0]))?.start);
+    let data;
+    if (starts.every((s) => typeof s === 'number')) {
+      const offset = (k) => Math.round(starts[k] * 16000);
+      const samples = pcm.map((b) => new Int16Array(b.buffer.slice(b.byteOffset, b.byteOffset + (b.length & ~1))));
+      const mix = new Int16Array(Math.max(...samples.map((x, k) => offset(k) + x.length)));
+      samples.forEach((x, k) => {
+        const at = offset(k);
+        for (let n = 0; n < x.length; n++) mix[at + n] = Math.max(-32768, Math.min(32767, mix[at + n] + x[n]));
+      });
+      data = Buffer.from(mix.buffer);
+    } else {
+      data = Buffer.concat(pcm);
+    }
+    const header = Buffer.alloc(44);
     header.write('RIFF', 0); header.writeUInt32LE(36 + data.length, 4); header.write('WAVE', 8);
     header.write('fmt ', 12); header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20); header.writeUInt16LE(1, 22);
     header.writeUInt32LE(16000, 24); header.writeUInt32LE(32000, 28); header.writeUInt16LE(2, 32); header.writeUInt16LE(16, 34);

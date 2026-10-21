@@ -16,7 +16,7 @@ contextBridge.exposeInMainWorld('api', {
   resume: { pick: call('resume:pick'), import: call('resume:import'), pathOf: (file) => webUtils.getPathForFile(file) },
   plan: { generate: call('plan:generate'), rewrite: call('plan:rewrite') },
   audio: { chunk: call('audio:chunk'), finish: call('audio:finish'), retry: call('audio:retry'), askMic: call('media:askMic') },
-  transcript: { pick: call('transcript:pick') },
+  transcript: { pick: call('transcript:pick'), speakers: call('transcript:speakers') },
   evaluate: call('eval:generate'),
   exportReport: call('report:export'),
   onProgress: on('llm:progress'),
