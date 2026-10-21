@@ -1,6 +1,16 @@
 # Agent 面试工作台
 
-单文件、可离线使用的面试官工作台，围绕用人画像的三个维度组织题目：
+**入口只有一个：`index.html`。** 打开即可使用，无需联网、无需安装。
+
+- **通用题池**（400 题）和**评估方法**直接可用。
+- **简历板块**已加密：点「简历板块」，输入密码即可解锁；勾选「在本机记住密码」后，下次打开自动解锁。
+- 每个板块、每个分块都有自己的地址，例如 `index.html#/resume/C/C-p2`，可收藏或发给同事（对方同样需要密码）。
+
+打开方式（任选其一）：
+1. 在 GitHub 上下载 `index.html`，双击打开；
+2. 开启 GitHub Pages（Settings → Pages → Deploy from a branch），之后直接访问 `https://keanying.github.io/mianshi/`。
+
+## 题目怎么组织
 
 | 维度 | 看什么 |
 |---|---|
@@ -8,30 +18,29 @@
 | 表达 `exp` | 能否把项目和方案讲清楚：先结论后细节、指标有口径、分清个人与团队贡献 |
 | 应变 `ext` | 条件或方案变化后能否重新推导，并说清为什么 |
 
-## 三个视图
+- **通用题池**：每题带维度标签、深挖追问、「情景变更」、高分信号和风险信号；含「项目表达与情景应变」分类，以及从简历中去个人化后沉淀的通用题（「源自简历」）。
+- **简历板块**：每份简历一个独立板块，按简历分块（专业技能 / 工作经历 / 每个项目）出题，块内按「表达 → 专业 → 应变」排列，附核实点、面试策略和三维打分（打分只存本机）。
+- **评估方法**：用人画像、60 分钟流程、1~4 分评分锚点、风险信号。
 
-- **通用题池**：原 320 道题全部补充了维度标签、「情景变更」追问、高分信号和风险信号；新增「项目表达与情景应变」等分类，以及从简历专项中去个人化后沉淀的通用题（带「源自简历」标记）。
-- **简历板块**：每份简历一个独立板块，总览页是简历卡片，点进去后顶部是分块标签（专业技能 / 工作经历 / 每个项目）。每块按「表达 → 专业 → 应变」出题，附简历核实点、面试策略和本场三维打分（打分只保存在本机浏览器）。新简历按 [docs/新增简历流程.md](docs/新增简历流程.md) 追加为新板块。
-- **评估方法**：用人画像、60 分钟面试流程、1~4 分评分锚点、题卡用法和常见风险信号。
+## 新增简历
 
-## 目录
+把简历截图发给 Claude 即可，处理步骤见 [docs/新增简历流程.md](docs/新增简历流程.md)。新简历会追加为新板块（E、F…），已有板块不受影响。
+
+## 维护者
 
 ```
-data/pool/base.json    原始题库（320 题，含参考代码）
-data/pool/enrich.json  按题号补充的 dims / twist / good / bad，以及少量措辞优化
-data/pool/added.json   新增通用题（含简历沉淀题，origin 字段指向来源题）
-private/resumes/<ID>/  每份简历一个目录：resume.md 转录原文 + questions.json 板块题目（含个人信息，已在 .gitignore 中排除）
-docs/                  题目规范、简历板块规范、新增简历流程
-src/                   页面模板：shell.html、style.css、app.js、method.html
-scripts/build.py       组装成单个 HTML
-dist/                  构建产物
+index.html                 唯一入口（构建产物，已提交）
+vault/resumes.enc.json     简历原始数据（转录 + 板块题目）的加密包
+data/pool/                 通用题池：base 原题、enrich 补充字段、added 新增题
+src/                       页面模板；scripts/ 构建、加解密、浏览器检查；docs/ 规范与流程
+private/                   解密后的简历数据与本机密码（.gitignore 排除，不提交）
 ```
-
-## 构建
 
 ```bash
-python3 scripts/build.py            # dist/interview-workbench.html（全部板块）+ dist/candidates/<ID>.html（每份简历单独一个文件）
-python3 scripts/build.py --public   # dist/interview-workbench-public.html，只含通用题池
+python3 scripts/vault.py open    # 新环境：用密码把 vault 解到 private/resumes/
+python3 scripts/build.py         # 生成 index.html（简历板块用同一密码加密内嵌）
+python3 scripts/vault.py seal    # 简历数据有改动时，重新加密写回 vault
+node scripts/check_ui.js         # 浏览器检查（需 Playwright）
 ```
 
-候选人数据属于个人信息，不要提交到公开仓库；需要共享时只分发完整版 HTML 文件。
+加密方式：PBKDF2-SHA256（60 万次迭代）派生密钥，AES-256-GCM 加密。仓库是公开的，密文任何人都能下载，安全性完全取决于密码强度：不要换成短密码，也不要把密码写进仓库。

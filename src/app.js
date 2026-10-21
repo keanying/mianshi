@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 const DATA=JSON.parse(document.getElementById('questionData').textContent);
-const CANDS=DATA.candidates||[];
+const CANDS=[];
 const $=id=>document.getElementById(id);
 const paths={search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',star:'<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9Z"/>',book:'<path d="M4 4h7a3 3 0 0 1 3 3v14a4 4 0 0 0-4-2H4V4Zm16 0h-3a3 3 0 0 0-3 3v14a4 4 0 0 1 4-2h2V4Z"/>',message:'<path d="M20 15a3 3 0 0 1-3 3H8l-5 3V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v9"/><path d="M7 8h10M7 12h6"/>',download:'<path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/>',printer:'<path d="M7 8V3h10v5M7 17H4V9h16v8h-3M7 14h10v7H7zM17 11h.1"/>',chevron:'<path d="m6 9 6 6 6-6"/>',check:'<path d="m5 12 4 4L19 6"/>',circle:'<circle cx="12" cy="12" r="8"/>',eye:'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',shuffle:'<path d="M3 5h3l12 14h3m-4-4 4 4-4 3M3 19h3l12-14h3m-4-3 4 3-4 4"/>'};
 function icon(name){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||paths.book}</svg>`}
@@ -14,23 +14,25 @@ const DIMS={pro:'专业',exp:'表达',ext:'应变'};
 const POOL_TOTAL=DATA.questions.length;
 
 // 统一的题目模型：通用题以数字字符串为 key，简历题以 "A-p1-3" 为 key。
-const items=new Map();
-for(const q of DATA.questions){items.set(String(q.id),{...q,key:String(q.id),kind:'pool',dimList:q.dims||[]})}
-const blockIndex=new Map();
-for(const c of CANDS)for(const b of c.blocks){blockIndex.set(b.id,{cand:c,block:b});for(const q of b.questions)items.set(q.id,{...q,key:q.id,kind:'resume',cand:c.id,block:b.id,dimList:[q.dim]})}
+const items=new Map(),blockIndex=new Map(),haystacks=new Map();
+const indexItem=q=>{items.set(q.key,q);haystacks.set(q.key,norm([q.question,...q.points,q.follow,q.twist||'',q.good||'',q.bad||'',q.kind==='pool'?DATA.categories[q.category]:blockIndex.get(q.block).block.name].join(' ')))};
+for(const q of DATA.questions)indexItem({...q,key:String(q.id),kind:'pool',dimList:q.dims||[]});
+// 简历板块可能在解锁后才加入，所以单独成函数。
+function addCandidates(list){for(const c of list){if(CANDS.some(x=>x.id===c.id))continue;CANDS.push(c);for(const b of c.blocks){blockIndex.set(b.id,{cand:c,block:b});for(const q of b.questions)indexItem({...q,key:q.id,kind:'resume',cand:c.id,block:b.id,dimList:[q.dim]})}}}
+addCandidates(DATA.candidates||[]);
 const poolByOrigin=new Map();
 for(const q of DATA.questions)if(q.origin?.question)poolByOrigin.set(q.origin.question,q.id);
-const haystacks=new Map([...items.values()].map(q=>[q.key,norm([q.question,...q.points,q.follow,q.twist||'',q.good||'',q.bad||'',q.kind==='pool'?DATA.categories[q.category]:blockIndex.get(q.block).block.name].join(' '))]));
 
 const STORAGE='agent-interviewer-v3';let storageAvailable=true,initial={};
 try{initial=JSON.parse(localStorage.getItem(STORAGE)||'null');if(!initial){const old=JSON.parse(localStorage.getItem('agent-interviewer-v2')||'{}')||{};initial={saved:(old.saved||[]).map(String),mastered:(old.mastered||[]).map(String)}}}catch(e){storageAvailable=false;initial={}}
-const validKeys=xs=>Array.isArray(xs)?xs.map(String).filter(k=>items.has(k)):[];
+// 简历题在解锁前不在 items 中，记录照样保留。
+const validKeys=xs=>Array.isArray(xs)?xs.map(String).filter(k=>items.has(k)||/^[A-Z]+-/.test(k)):[];
 const saved=new Set(validKeys(initial.saved)),mastered=new Set(validKeys(initial.mastered));
 const scores=(initial.scores&&typeof initial.scores==='object')?initial.scores:{};
-// 单份简历的独立文件直接打开该简历板块；cand 为空表示简历板块总览。
-const state={view:DATA.single?'resume':'pool',category:-1,cand:DATA.single?CANDS[0].id:null,block:'',search:'',dims:new Set(),favorites:false,unlearned:false,coding:false,origin:false,interview:false,page:1};
+// cand 为空表示简历板块总览。
+const state={view:'pool',category:-1,cand:null,block:'',search:'',dims:new Set(),favorites:false,unlearned:false,coding:false,origin:false,interview:false,page:1};
 const perPage=20,openIds=new Set(['1']),closedIds=new Set();let currentResults=[],toastTimer;
-if(!CANDS.length){$('resumeTab').disabled=true;$('resumeTab').title='当前版本未包含简历数据'}
+if(!CANDS.length&&!DATA.locked){$('resumeTab').disabled=true;$('resumeTab').title='当前版本未包含简历数据'}
 const candById=id=>CANDS.find(c=>c.id===id);
 
 // 视图状态写入 hash（#/pool/3、#/resume/A/A-p1、#/method），每个简历板块都可以单独收藏或转发。
@@ -38,9 +40,10 @@ function readHash(){
  const [view,a,b]=decodeURIComponent(location.hash.replace(/^#\/?/,'')).split('/');
  if(view==='method')state.view='method';
  else if(view==='pool'){state.view='pool';const n=Number(a);state.category=Number.isInteger(n)&&n>=0&&n<DATA.categories.length?n:-1}
- else if(view==='resume'&&CANDS.length){state.view='resume';state.cand=candById(a)?a:(DATA.single?CANDS[0].id:null);state.block=state.cand&&blockIndex.get(b)?.cand.id===state.cand?b:''}
+ else if(view==='resume'&&(CANDS.length||DATA.locked)){state.view='resume';state.cand=candById(a)?a:null;state.block=state.cand&&blockIndex.get(b)?.cand.id===state.cand?b:''}
 }
 function writeHash(){
+ if(state.view==='resume'&&!CANDS.length)return; // 未解锁时保留原地址，解锁后再按它打开对应板块
  const parts=state.view==='pool'?['pool',...(state.category>=0?[state.category]:[])]:state.view==='resume'?['resume',...(state.cand?[state.cand]:[]),...(state.block?[state.block]:[])]:['method'];
  const hash='#/'+parts.map(encodeURIComponent).join('/');
  if(location.hash!==hash)history.replaceState(null,'',hash);
@@ -91,15 +94,18 @@ function renderNav(){
   $('mobileCategory').innerHTML=`<option value="-1">全部分类 · ${POOL_TOTAL} 道</option>`+DATA.categories.map((n,i)=>`<option value="${i}">${String(i+1).padStart(2,'0')} · ${esc(n)}</option>`).join('');$('mobileCategory').value=String(state.category);
  }else if(state.view==='resume'){
   const c=candById(state.cand);const kinds={skills:'技能',work:'经历',project:'项目'};
-  if(!c){
+  if(!CANDS.length){
+   $('sideLabel').textContent='简历板块 · 已加密';$('sideCount').textContent='';$('categoryNav').innerHTML='';
+   $('mobileCategory').innerHTML='<option value="">输入密码后显示简历板块</option>';
+  }else if(!c){
    $('sideLabel').textContent='简历板块 · 每份简历独立';$('sideCount').textContent=`${CANDS.length} 份`;
    $('categoryNav').innerHTML=CANDS.map((x,i)=>navButton('cand:'+x.id,false,esc(x.id),x.label+' · '+x.headline,x.blocks.reduce((n,b)=>n+b.questions.length,0))).join('');
    $('mobileCategory').innerHTML=`<option value="">选择简历板块 · ${CANDS.length} 份</option>`+CANDS.map(x=>`<option value="cand:${esc(x.id)}">${esc(x.label)} · ${esc(x.headline)}</option>`).join('');$('mobileCategory').value='';
   }else{
    const pool=[...items.values()].filter(q=>matchResume(q,true));
    $('sideLabel').textContent=c.label+' · 按简历分块';$('sideCount').textContent=`${c.blocks.length} 块`;
-   $('categoryNav').innerHTML=(DATA.single?'':`<button class="nav-item back" data-nav="back"><span class="nav-number">←</span><span class="nav-name">全部简历板块</span><span class="nav-count">${CANDS.length}</span></button>`)+navButton('',!state.block,'◎','全部分块',pool.length)+c.blocks.map((b,i)=>navButton(b.id,state.block===b.id,String(i+1).padStart(2,'0'),b.name,pool.filter(q=>q.block===b.id).length,` <span class="nav-kind">${kinds[b.kind]||''}</span>`)).join('');
-   $('mobileCategory').innerHTML=(DATA.single?'':'<option value="back">← 全部简历板块</option>')+`<option value="">全部分块</option>`+c.blocks.map((b,i)=>`<option value="${esc(b.id)}">${String(i+1).padStart(2,'0')} · ${esc(b.name)}</option>`).join('');$('mobileCategory').value=state.block;
+   $('categoryNav').innerHTML=(`<button class="nav-item back" data-nav="back"><span class="nav-number">←</span><span class="nav-name">全部简历板块</span><span class="nav-count">${CANDS.length}</span></button>`)+navButton('',!state.block,'◎','全部分块',pool.length)+c.blocks.map((b,i)=>navButton(b.id,state.block===b.id,String(i+1).padStart(2,'0'),b.name,pool.filter(q=>q.block===b.id).length,` <span class="nav-kind">${kinds[b.kind]||''}</span>`)).join('');
+   $('mobileCategory').innerHTML='<option value="back">← 全部简历板块</option>'+`<option value="">全部分块</option>`+c.blocks.map((b,i)=>`<option value="${esc(b.id)}">${String(i+1).padStart(2,'0')} · ${esc(b.name)}</option>`).join('');$('mobileCategory').value=state.block;
   }
  }else{
   const sections=[...document.querySelectorAll('#methodView section')];
@@ -132,6 +138,21 @@ function candidatePanel(c){
  return `<div class="cand-panel"><div class="cand-head"><h3>${esc(c.label)}</h3><span>${esc(c.headline)}</span></div><p class="cand-profile">${esc(c.profile)}</p><div class="cand-grid"><div class="cand-box"><h4>面试策略</h4><ul>${c.focus.map(f=>`<li>${esc(f)}</li>`).join('')}</ul></div><div class="cand-box"><h4>简历核实点（开场 5 分钟）</h4><ul>${c.verify.map(v=>`<li>${esc(v.point)}<span class="verify-ask">问法：${esc(v.ask)}</span></li>`).join('')}</ul></div></div><div class="score-panel"><h4><span>本场打分（1~4，锚点见「评估方法」）</span><button class="btn small" data-score-copy="${esc(c.id)}">复制评估摘要</button></h4>${Object.keys(DIMS).map(d=>`<div class="score-row"><label><span class="dim dim-${d}">${DIMS[d]}</span></label>${scale(d)}</div>`).join('')}<textarea class="score-note" data-score-note="${esc(c.id)}" placeholder="记录关键回答、高分/风险信号、建议下一轮重点…">${esc(sc.note||'')}</textarea></div></div>`;
 }
 
+// 简历板块以密文内嵌（PBKDF2-SHA256 → AES-256-GCM，格式见 scripts/vault.py），输入密码后在本地解密。
+const PASS_KEY='agent-interviewer-pass';let unlockError='',unlocking=false;
+async function unlock(password,remember){
+ const bytes=b=>Uint8Array.from(atob(b),ch=>ch.charCodeAt(0)),box=DATA.locked;
+ const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveKey']);
+ const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:bytes(box.salt),iterations:box.iter,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['decrypt']);
+ const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:bytes(box.iv)},key,bytes(box.ct));
+ addCandidates(JSON.parse(new TextDecoder().decode(plain)));
+ try{remember?localStorage.setItem(PASS_KEY,password):localStorage.removeItem(PASS_KEY)}catch(e){}
+}
+function unlockPanel(){
+ if(!window.crypto?.subtle)return `<div class="empty"><h3>当前浏览器无法解密</h3><p>请用 Chrome、Edge、Safari 或 Firefox 直接打开本文件，或通过 https 地址访问。</p></div>`;
+ return `<form class="unlock" id="unlockForm"><h3>简历板块已加密</h3><p>通用题池和评估方法无需密码。输入密码后，简历板块只在本机浏览器中解密。</p><input type="password" id="unlockInput" placeholder="输入密码" autocomplete="current-password" aria-label="简历板块密码" ${unlocking?'disabled':''}><label class="unlock-remember"><input type="checkbox" id="unlockRemember" checked> 在本机记住密码，下次自动解锁</label><button class="btn primary" type="submit" ${unlocking?'disabled':''}>${unlocking?'正在解密…':'解锁简历板块'}</button>${unlockError?`<p class="unlock-error" role="alert">${esc(unlockError)}</p>`:''}</form>`;
+}
+
 function boardCard(c){
  const keys=c.blocks.flatMap(b=>b.questions.map(q=>q.id)),asked=keys.filter(k=>mastered.has(k)).length,sc=scores[c.id]||{};
  const scoreText=Object.keys(DIMS).map(d=>`${DIMS[d]} ${sc[d]??'–'}`).join(' · ');
@@ -161,11 +182,16 @@ function render(resetScroll=true){
  }else{
   const c=candById(state.cand);
   $('pagination').hidden=true;
-  if(!c){
+  if(!CANDS.length){
+   currentResults=[];$('blockTabs').hidden=true;
+   $('categoryTitle').textContent='简历板块';$('resultCount').textContent='需要密码';
+   $('cards').innerHTML=unlockPanel();$('modeHint').textContent='';
+   setTimeout(()=>$('unlockInput')?.focus(),0);
+  }else if(!c){
    // 简历板块总览：每份简历一张卡片，点进去是它独立的板块。
    currentResults=[];$('blockTabs').hidden=true;
    $('categoryTitle').textContent='简历板块';$('resultCount').textContent=`${CANDS.length} 份简历 · 每份独立成板块，按简历分块出题`;
-   $('cards').innerHTML=`<div class="board-grid">${CANDS.map(boardCard).join('')}<div class="board-card board-add"><span>新简历发来后会追加为新的板块（E、F…），已有板块与打分记录不受影响。</span></div></div>`;
+   $('cards').innerHTML=`<div class="board-grid">${CANDS.map(boardCard).join('')}<div class="board-card board-add"><span>新简历发来后会追加为新的板块（E、F…），已有板块与打分记录不受影响。</span>${DATA.locked?'<span><button class="btn small" type="button" data-lock>锁定并忘记本机密码</button></span>':''}</div></div>`;
    $('modeHint').textContent='选择一份简历进入它的板块';
   }else{
    currentResults=[...items.values()].filter(q=>matchResume(q));
@@ -188,7 +214,7 @@ function render(resetScroll=true){
 }
 
 function closeMenu(){$('sidebar').classList.remove('open');$('overlay').classList.remove('open');$('menuButton').setAttribute('aria-expanded','false')}
-function setView(view){if(view==='resume'&&!CANDS.length)return;state.view=view;state.page=1;closeMenu();render()}
+function setView(view){if(view==='resume'&&!CANDS.length&&!DATA.locked)return;state.view=view;state.page=1;closeMenu();render()}
 function navigate(value){
  if(state.view==='pool'){state.category=Number(value);state.page=1}
  else if(state.view==='resume'){if(value==='back'){state.cand=null;state.block=''}else if(value.startsWith('cand:')){state.cand=value.slice(5);state.block=''}else state.block=value}
@@ -198,6 +224,13 @@ function navigate(value){
 document.querySelector('.view-switch').addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b&&!b.disabled)setView(b.dataset.view)});
 $('blockTabs').addEventListener('click',e=>{const b=e.target.closest('[data-block]');if(!b)return;state.block=b.dataset.block;render()});
 window.addEventListener('hashchange',()=>{readHash();render()});
+$('cards').addEventListener('submit',async e=>{
+ if(e.target.id!=='unlockForm')return;e.preventDefault();
+ const password=$('unlockInput').value;if(!password)return;
+ unlocking=true;unlockError='';render(false);
+ try{await unlock(password,$('unlockRemember')?.checked??true);unlocking=false;readHash();render();notify('简历板块已解锁',{description:`${CANDS.length} 份简历 · 仅在本机解密`})}
+ catch(err){unlocking=false;unlockError='密码不正确，请重试。';render(false)}
+});
 $('categoryNav').addEventListener('click',e=>{const b=e.target.closest('[data-nav]');if(b)navigate(b.dataset.nav)});
 $('mobileCategory').addEventListener('change',e=>navigate(e.target.value));
 $('searchInput').addEventListener('input',e=>{state.search=e.target.value;state.page=1;render()});
@@ -206,6 +239,7 @@ $('dimFilter').addEventListener('click',e=>{const b=e.target.closest('[data-dim]
 for(const [id,key] of [['codeFilter','coding'],['originFilter','origin'],['favoriteFilter','favorites'],['unlearnedFilter','unlearned'],['interviewButton','interview']])$(id).addEventListener('click',()=>{state[key]=!state[key];state.page=1;render()});
 
 $('cards').addEventListener('click',async e=>{
+ if(e.target.closest('[data-lock]')){try{localStorage.removeItem(PASS_KEY)}catch(err){}location.reload();return}
  const open=e.target.closest('[data-open-cand]');
  if(open){state.cand=open.dataset.openCand;state.block='';render();return}
  const jump=e.target.closest('[data-pool-jump]');
@@ -252,4 +286,6 @@ $('resetProgress').addEventListener('click',async()=>{if(await confirmAction({ti
 $('newRound').addEventListener('click',async()=>{if(await confirmAction({title:'开始下一场面试？',description:`清除全部 ${mastered.size} 道已问标记。
 保留 ${saved.size} 道备选题目和已有打分记录。`,button:'开始新一场'})){const previous=[...mastered];mastered.clear();persist();render();notify('新一场面试已准备好',{description:'已问标记已清除，面试题单已保留。',undo:()=>{previous.forEach(id=>mastered.add(id));persist();render()}})}});
 readHash();render();
+{let remembered=null;try{remembered=localStorage.getItem(PASS_KEY)}catch(e){}
+ if(DATA.locked&&remembered&&window.crypto?.subtle)unlock(remembered,true).then(()=>{readHash();render()}).catch(()=>{try{localStorage.removeItem(PASS_KEY)}catch(e){}});}
 })();

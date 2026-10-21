@@ -1,16 +1,18 @@
-"""Assemble the interviewer workbench into offline HTML files.
+"""Assemble the interviewer workbench into one offline page: index.html at the repo root.
 
 Usage:
-    python3 scripts/build.py            # full build: pool + every résumé board in private/resumes/<ID>/
-                                        # also writes dist/candidates/<ID>.html, one board per résumé
-    python3 scripts/build.py --public   # pool only, safe to publish (no candidate data)
+    python3 scripts/build.py
+
+The general pool is embedded as plain JSON. Résumé boards from private/resumes/<ID>/ are
+embedded encrypted (see scripts/vault.py) and unlock in the page with the same password.
 """
-import argparse
 import json
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+import vault  # noqa: E402
 DIMS = {"pro", "exp", "ext"}
 
 # 新增分类接在原 23 个分类之后，下标与 data/pool/added.json 中的 category 对应。
@@ -75,7 +77,7 @@ def load_candidates():
     return candidates
 
 
-def render(data, filename):
+def render(data):
     # 内嵌在 <script type="application/json"> 中，需转义 "</" 以免提前闭合标签。
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     html = (ROOT / "src/shell.html").read_text(encoding="utf-8")
@@ -83,35 +85,26 @@ def render(data, filename):
         "{{STYLE}}": (ROOT / "src/style.css").read_text(encoding="utf-8"),
         "{{METHOD}}": (ROOT / "src/method.html").read_text(encoding="utf-8"),
         "{{SCRIPT}}": (ROOT / "src/app.js").read_text(encoding="utf-8"),
-        "{{FILENAME}}": Path(filename).name,
         "{{DATA}}": payload,
     }.items():
         html = html.replace(key, value)
-    out = ROOT / "dist" / filename
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(html, encoding="utf-8")
-    resume_count = sum(len(b["questions"]) for c in data["candidates"] for b in c["blocks"])
-    print(f"{out.relative_to(ROOT)}: {len(data['questions'])} pool questions, "
-          f"{len(data['candidates'])} résumé boards, {resume_count} résumé questions")
+    (ROOT / "index.html").write_text(html, encoding="utf-8")
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--public", action="store_true", help="exclude résumé data")
-    args = parser.parse_args()
-
     categories, questions = build_pool()
-    if args.public:
-        render({"categories": categories, "questions": questions, "candidates": []},
-               "interview-workbench-public.html")
-        return
     candidates = load_candidates()
-    render({"categories": categories, "questions": questions, "candidates": candidates},
-           "interview-workbench.html")
-    for c in candidates:
-        # 单份简历的独立板块，便于转给其他面试官；文件名就是页面里的下载名。
-        render({"categories": categories, "questions": questions, "candidates": [c], "single": True},
-               f"candidates/{c['id']}.html")
+    if not candidates and vault.VAULT.exists():
+        sys.exit("private/resumes/ is empty: run `python3 scripts/vault.py open` first, "
+                 "otherwise the page would ship without the résumé boards")
+    locked = None
+    if candidates:
+        plain = json.dumps(candidates, ensure_ascii=False, separators=(",", ":")).encode()
+        locked = vault.seal(plain, vault.password())
+    render({"categories": categories, "questions": questions, "candidates": [], "locked": locked})
+    resume_count = sum(len(b["questions"]) for c in candidates for b in c["blocks"])
+    print(f"index.html: {len(questions)} pool questions, "
+          f"{len(candidates)} encrypted résumé boards ({resume_count} questions)")
 
 
 if __name__ == "__main__":
