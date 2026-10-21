@@ -26,9 +26,19 @@ const check = (ok, message) => { if (!ok) failures.push(message); };
 
   // 通用题池无需密码。
   const pool = await open();
-  check(/道题/.test(await text(pool, '#resultCount')), 'pool not rendered');
+  check(/道题/.test(await text(pool, '#pageSub')), 'pool not rendered');
+  check((await pool.locator('.q').count()) > 0, 'pool: no question cards');
   await pool.click('#dimFilter [data-dim="exp"]');
-  check(/表达/.test(await text(pool, '#resultCount')), 'dimension filter not applied');
+  check(/表达/.test(await text(pool, '#pageSub')), 'dimension filter not applied');
+  // 面试模式：打开、翻页、显示要点、退出。
+  await pool.click('#focusButton');
+  check(await pool.locator('#focus').isVisible(), 'focus mode did not open');
+  await pool.keyboard.press('ArrowRight');
+  check(/^2 \//.test(await text(pool, '#focusPos')), 'focus mode: next question failed');
+  await pool.keyboard.press(' ');
+  check(await pool.locator('#focusAnswer').isVisible(), 'focus mode: answer not revealed');
+  await pool.keyboard.press('Escape');
+  check(!(await pool.locator('#focus').isVisible()), 'focus mode did not close');
 
   const locked = await pool.evaluate(() => Boolean(JSON.parse(document.getElementById('questionData').textContent).locked));
   if (locked) {
@@ -37,7 +47,7 @@ const check = (ok, message) => { if (!ok) failures.push(message); };
     check(await page.locator('#unlockForm').isVisible(), 'locked: unlock form not shown');
     await page.fill('#unlockInput', 'wrong-password');
     await page.click('#unlockForm button[type="submit"]');
-    await page.locator('.unlock-error').waitFor({ timeout: 15000 });
+    await page.locator('#unlockForm .error').waitFor({ timeout: 15000 });
 
     if (!password) {
       console.warn('No password available: skipped unlock checks');
@@ -46,7 +56,8 @@ const check = (ok, message) => { if (!ok) failures.push(message); };
       await page.click('#unlockForm button[type="submit"]');
       await page.locator('#blockTabs').waitFor({ state: 'visible', timeout: 15000 });
       check(/B-p2$/.test(page.url()), 'deep link not restored after unlock');
-      check(/企业知识中台/.test(await text(page, '#categoryTitle')), 'deep link opened the wrong block');
+      check((await text(page, '#blockTabs button.active')).includes('知识中台'), 'deep link opened the wrong block');
+      check((await page.locator('.q').count()) > 0, 'block shows no questions');
       await page.click('[data-nav="back"]');
       check((await page.locator('[data-open-cand]').count()) > 0, 'no boards on the overview');
 
@@ -54,8 +65,9 @@ const check = (ok, message) => { if (!ok) failures.push(message); };
       const again = await open('#/resume', undefined, context);
       await again.locator('[data-open-cand]').first().waitFor({ timeout: 15000 });
       await again.locator('[data-open-cand]').first().click();
+      check(await again.locator('.overview').isVisible(), 'board does not open on the overview tab');
       const tabs = again.locator('#blockTabs button');
-      await tabs.nth(1).click();
+      await tabs.nth(2).click();
       check(/#\/resume\/[^/]+\/.+/.test(again.url()), 'block selection not reflected in the URL');
 
       const mobile = await open('#/resume', { width: 390, height: 844 }, context);

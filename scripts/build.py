@@ -16,6 +16,17 @@ import vault  # noqa: E402
 DIMS = {"pro", "exp", "ext"}
 
 # 新增分类接在原 23 个分类之后，下标与 data/pool/added.json 中的 category 对应。
+# 侧栏分组：27 个分类归为 7 组；没有题目的分类（如已拆分完的「补充深度场景与追问」）在页面上自动隐藏。
+GROUPS = [
+    ("架构与编排", [0, 4, 9, 3, 21, 22]),
+    ("模型与生成", [2, 14, 25]),
+    ("检索与知识", [7, 8, 24, 6, 23]),
+    ("工程与可靠性", [1, 11, 13, 5, 12]),
+    ("质量与交付", [10, 16, 17, 19]),
+    ("业务场景", [15, 20]),
+    ("现场与表达", [18, 26]),
+]
+
 NEW_CATEGORIES = [
     "NL2SQL 与数据分析智能体",
     "知识图谱与 GraphRAG",
@@ -48,6 +59,15 @@ def build_pool():
         q["id"] = next_id
         next_id += 1
         questions.append(q)
+    # curation.json：每题一个主维度 dim，过长题目的精简版，以及从「补充深度场景」改到具体主题的分类。
+    curation = load(ROOT / "data/pool/curation.json")
+    for q in questions:
+        fix = curation[str(q["id"])]
+        q["dims"] = [fix["dim"]]
+        if fix.get("question_short"):
+            q["question"] = fix["question_short"]
+        if "category" in fix:
+            q["category"] = fix["category"]
     for q in questions:
         assert 0 <= q["category"] < len(categories), q["id"]
         assert q["dims"] and set(q["dims"]) <= DIMS, q["id"]
@@ -101,7 +121,7 @@ def main():
     if candidates:
         plain = json.dumps(candidates, ensure_ascii=False, separators=(",", ":")).encode()
         locked = vault.seal(plain, vault.password())
-    render({"categories": categories, "questions": questions, "candidates": [], "locked": locked})
+    render({"categories": categories, "groups": GROUPS, "questions": questions, "candidates": [], "locked": locked})
     resume_count = sum(len(b["questions"]) for c in candidates for b in c["blocks"])
     print(f"index.html: {len(questions)} pool questions, "
           f"{len(candidates)} encrypted résumé boards ({resume_count} questions)")
