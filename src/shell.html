@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light">
-<meta name="description" content="Agent 工程师面试工作台：按专业、表达、应变三维度组织的通用题池，按简历分块的简历板块，评估方法与打分。">
+<meta name="description" content="Agent 工程师面试工作台：按专业度、自驱力、性格特质、逻辑思维、适应力五维度组织的通用题池，按简历分块的简历板块，评估方法与打分。">
 <title>Agent 面试工作台</title>
 <style>
 {{STYLE}}
@@ -13,7 +13,7 @@
 <body>
 <a class="skip" href="#cards">跳转至题目</a>
 <aside class="sidebar" id="sidebar" aria-label="导航">
- <div class="brand"><span class="brand-mark">面</span><div><strong>Agent 面试工作台</strong><small>专业 · 表达 · 应变</small></div></div>
+ <div class="brand"><span class="brand-mark">面</span><div><strong>Agent 面试工作台</strong><small>五维评估 · 0~5 分</small></div></div>
  <nav class="views" aria-label="视图">
   <button data-view="pool"><span>通用题池</span><em id="poolCount"></em></button>
   <button data-view="resume" id="resumeTab"><span>简历板块</span><em id="resumeCount"></em></button>
@@ -48,7 +48,7 @@
     <select class="mobile-nav" id="mobileNav" aria-label="选择分类"></select>
    </div>
    <div class="filters" id="filters" aria-label="筛选">
-    <div class="segmented" id="dimFilter" role="group" aria-label="维度"><button data-dim="">全部</button><button data-dim="pro">专业</button><button data-dim="exp">表达</button><button data-dim="ext">应变</button></div>
+    <div class="segmented" id="dimFilter" role="group" aria-label="维度"><button data-dim="">全部</button><button data-dim="pro">专业度</button><button data-dim="drive">自驱力</button><button data-dim="trait">性格特质</button><button data-dim="logic">逻辑思维</button><button data-dim="adapt">适应力</button></div>
     <div class="toggles">
      <button class="toggle" id="favoriteFilter"><span data-icon="star"></span>题单</button>
      <button class="toggle" id="unlearnedFilter"><span data-icon="circle"></span>未问</button>

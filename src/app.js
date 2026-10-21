@@ -8,7 +8,7 @@ const paths={search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>
 const icon=n=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[n]}</svg>`;
 document.querySelectorAll('[data-icon]').forEach(el=>el.innerHTML=icon(el.dataset.icon));
 {const self=location.href.split('#')[0];if(/\.html?$/i.test(self)){$('downloadButton').href=self;$('downloadButton').download=decodeURIComponent(self.split('/').pop())}}
-const DIMS={pro:'专业',exp:'表达',ext:'应变'};
+const DIMS={pro:'专业度',drive:'自驱力',trait:'性格特质',logic:'逻辑思维',adapt:'适应力'},DIM_SHORT={pro:'专业',drive:'自驱',trait:'性格',logic:'逻辑',adapt:'适应'};
 const CN_KIND={skills:'专业技能',work:'工作经历'};
 
 // ---------- 数据 ----------
@@ -22,6 +22,9 @@ const poolByOrigin=new Map(DATA.questions.filter(q=>q.origin?.question).map(q=>[
 const candById=id=>CANDS.find(c=>c.id===id);
 const projectNo=(c,b)=>c.blocks.filter(x=>x.kind==='project').indexOf(b)+1;
 const blockShort=(c,b)=>b.kind==='project'?`项目${projectNo(c,b)}`:(CN_KIND[b.kind]||b.name);
+// 分块列表里的名字：项目带编号，五维题带前缀。
+const blockTitle=(c,b)=>b.kind==='project'?`${blockShort(c,b)} · ${b.short||b.name}`:b.kind==='dim'?`五维 · ${b.name}`:(b.short||b.name);
+const isDimBlock=id=>blockIndex.get(id)?.block.kind==='dim';
 function qLabel(q){if(q.kind==='pool')return `Q${String(q.id).padStart(3,'0')}`;const {cand,block}=blockIndex.get(q.block);return `${cand.id} · ${blockShort(cand,block)} · 第${block.questions.findIndex(x=>x.id===q.key)+1}题`}
 const keyLabel=k=>items.has(k)?qLabel(items.get(k)):k;
 const poolItems=[...items.values()];
@@ -33,17 +36,19 @@ try{initial=JSON.parse(localStorage.getItem(STORAGE)||'null')||{}}catch(e){stora
 const keep=xs=>Array.isArray(xs)?xs.map(String).filter(k=>items.has(k)||/^[A-Z]+-/.test(k)):[];
 const saved=new Set(keep(initial.saved)),asked=new Set(keep(initial.mastered));
 const scores=initial.scores&&typeof initial.scores==='object'?initial.scores:{};
+// 旧版三维打分（表达 / 应变）并入逻辑思维 / 适应力。
+for(const v of Object.values(scores))if(v&&typeof v==='object')for(const [o,n] of [['exp','logic'],['ext','adapt']])if(o in v){if(v[n]===undefined)v[n]=v[o];delete v[o]}
 function persist(){try{localStorage.setItem(STORAGE,JSON.stringify({saved:[...saved],mastered:[...asked],scores}))}catch(e){storageOk=false}updateFoot()}
 
 // ---------- 状态与地址 ----------
-// tab：overview（概览）| all（全部题目）| 分块 id。
+// tab：overview（概览）| all（全部题目）| dims（五维题）| 分块 id。
 const state={view:'pool',category:-1,cand:null,tab:'overview',search:'',dim:'',favorites:false,unlearned:false,coding:false,origin:false,questionsOnly:false,page:1};
 const perPage=20;let results=[];
 function readHash(){
  const [view,a,b]=decodeURIComponent(location.hash.replace(/^#\/?/,'')).split('/');
  if(view==='method')state.view='method';
  else if(view==='pool'){state.view='pool';const n=Number(a);state.category=Number.isInteger(n)&&n>=0&&n<DATA.categories.length?n:-1}
- else if(view==='resume'&&(CANDS.length||DATA.locked)){state.view='resume';state.cand=candById(a)?a:null;state.tab=state.cand&&(b==='all'||blockIndex.get(b)?.cand.id===state.cand)?b:'overview'}
+ else if(view==='resume'&&(CANDS.length||DATA.locked)){state.view='resume';state.cand=candById(a)?a:null;state.tab=state.cand&&(b==='all'||b==='dims'||blockIndex.get(b)?.cand.id===state.cand)?b:'overview'}
 }
 function writeHash(){
  if(state.view==='resume'&&!CANDS.length)return; // 未解锁时保留原地址，解锁后按它打开
@@ -83,7 +88,7 @@ function matches(q){
  return tokens().every(t=>q.kind==='pool'&&/^(?:#|q)?\d{1,3}$/.test(t)?q.id===Number(t.replace(/^[#q]/,'')):haystacks.get(q.key).includes(t));
 }
 const poolMatch=(q,anyCategory)=>q.kind==='pool'&&(!state.coding||q.code)&&(!state.origin||q.origin)&&(anyCategory||state.category<0||q.category===state.category)&&matches(q);
-const resumeMatch=(q,anyBlock)=>q.kind==='resume'&&q.cand===state.cand&&(anyBlock||state.tab==='all'||q.block===state.tab)&&matches(q);
+const resumeMatch=(q,anyBlock)=>q.kind==='resume'&&q.cand===state.cand&&(anyBlock||state.tab==='all'||q.block===state.tab||(state.tab==='dims'&&isDimBlock(q.block)))&&matches(q);
 function highlight(text){let terms=state.search.trim().split(/\s+/).filter(t=>t&&!/^#?\d+$/.test(t));if(!terms.length)return esc(text);terms=[...new Set(terms)].sort((a,b)=>b.length-a.length);const re=new RegExp(terms.map(t=>t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|'),'gi');let out='',last=0;for(const m of text.matchAll(re)){out+=esc(text.slice(last,m.index))+'<mark>'+esc(m[0])+'</mark>';last=m.index+m[0].length}return out+esc(text.slice(last))}
 
 // ---------- 题卡 ----------
@@ -120,8 +125,9 @@ function renderSide(){
   else{
    const n=id=>c.blocks.find(b=>b.id===id).questions.filter(q=>matches(items.get(q.id))).length;
    $('sideTitle').textContent=`${c.label} · 按简历分块`;
-   side=sideItem('back',false,'全部简历','','back','←')+sideItem('overview',state.tab==='overview','概览：画像、核实点、打分')+sideItem('all',state.tab==='all','全部题目',c.blocks.reduce((s,b)=>s+n(b.id),0))+'<div class="side-group">分块</div>'+c.blocks.map(b=>sideItem(b.id,state.tab===b.id,b.short||b.name,n(b.id),'',b.kind==='project'?blockShort(c,b):'')).join('');
-   nav.innerHTML='<option value="back">← 全部简历</option><option value="overview">概览</option><option value="all">全部题目</option>'+c.blocks.map(b=>`<option value="${esc(b.id)}">${b.kind==='project'?esc(blockShort(c,b))+' · ':''}${esc(b.short||b.name)}</option>`).join('');nav.value=state.tab;
+   const parts=c.blocks.filter(b=>b.kind!=='dim'),dims=c.blocks.filter(b=>b.kind==='dim');
+   side=sideItem('back',false,'全部简历','','back','←')+sideItem('overview',state.tab==='overview','概览：画像、核实点、打分')+sideItem('all',state.tab==='all','全部题目',c.blocks.reduce((s,b)=>s+n(b.id),0))+'<div class="side-group">简历分块</div>'+parts.map(b=>sideItem(b.id,state.tab===b.id,b.short||b.name,n(b.id),'',b.kind==='project'?blockShort(c,b):'')).join('')+(dims.length?'<div class="side-group">五维题</div>'+sideItem('dims',state.tab==='dims','五个维度全部',dims.reduce((s,b)=>s+n(b.id),0))+dims.map(b=>sideItem(b.id,state.tab===b.id,b.name,n(b.id),`dim-item dot-${b.dim}`)).join(''):'');
+   nav.innerHTML='<option value="back">← 全部简历</option><option value="overview">概览</option><option value="all">全部题目</option>'+(dims.length?'<option value="dims">五维题 · 全部</option>':'')+c.blocks.map(b=>`<option value="${esc(b.id)}">${esc(blockTitle(c,b))}</option>`).join('');nav.value=state.tab;
   }
  }else{
   const secs=[...document.querySelectorAll('#methodView section')];$('sideTitle').textContent='评估方法';
@@ -134,16 +140,16 @@ function scopeKeys(){return state.view==='resume'?[...items.values()].filter(q=>
 function updateFoot(){const keys=scopeKeys(),n=keys.filter(k=>asked.has(k)).length;$('progressLabel').textContent=`${n} / ${keys.length}`;$('progressFill').style.width=`${keys.length?n/keys.length*100:0}%`;$('savedCount').textContent=keys.filter(k=>saved.has(k)).length;$('storageNote').textContent=storageOk?'记录仅保存在本机浏览器':'浏览器限制存储，记录可能不会保留'}
 
 // ---------- 简历板块 ----------
-function boardCard(c){const keys=c.blocks.flatMap(b=>b.questions.map(q=>q.id)),sc=scores[c.id]||{};return `<button class="board" data-open-cand="${esc(c.id)}"><span class="board-top"><span class="board-mark">${esc(c.id)}</span><span class="board-text"><strong>${esc(c.label)}</strong><em>${esc(c.headline)}</em></span></span><p>${esc(c.profile)}</p><span class="board-meta"><span>${c.blocks.length} 块 · ${keys.length} 题 · 已问 ${keys.filter(k=>asked.has(k)).length}</span><span>${Object.keys(DIMS).map(d=>`${DIMS[d]} ${sc[d]??'–'}`).join(' · ')}</span></span>${c.receivedAt?`<span class="board-meta"><span>${esc(c.source||'')}</span><span>收到 ${esc(c.receivedAt)}</span></span>`:''}</button>`}
+function boardCard(c){const keys=c.blocks.flatMap(b=>b.questions.map(q=>q.id)),sc=scores[c.id]||{};return `<button class="board" data-open-cand="${esc(c.id)}"><span class="board-top"><span class="board-mark">${esc(c.id)}</span><span class="board-text"><strong>${esc(c.label)}</strong><em>${esc(c.headline)}</em></span></span><p>${esc(c.profile)}</p><span class="board-meta"><span>${c.blocks.length} 块 · ${keys.length} 题 · 已问 ${keys.filter(k=>asked.has(k)).length}</span><span>${Object.keys(DIMS).map(d=>`${DIM_SHORT[d]} ${sc[d]??'–'}`).join(' · ')}</span></span>${c.receivedAt?`<span class="board-meta"><span>${esc(c.source||'')}</span><span>收到 ${esc(c.receivedAt)}</span></span>`:''}</button>`}
 function unlockPanel(){
  if(!window.crypto?.subtle)return `<div class="empty"><h3>当前浏览器无法解密</h3><p>请用 Chrome、Edge、Safari 或 Firefox 直接打开本文件，或通过 https 地址访问。</p></div>`;
  return `<form class="panel unlock" id="unlockForm"><h3>简历板块已加密</h3><p class="lead">通用题池和评估方法无需密码。输入密码后，简历内容只在本机浏览器中解密。</p><input type="password" id="unlockInput" placeholder="输入密码" autocomplete="current-password" aria-label="简历板块密码" ${unlocking?'disabled':''}><label><input type="checkbox" id="unlockRemember" checked>在本机记住密码，下次自动解锁</label><button class="btn primary" type="submit" ${unlocking?'disabled':''}>${unlocking?'正在解密…':'解锁'}</button>${unlockError?`<p class="error" role="alert">${esc(unlockError)}</p>`:''}</form>`;
 }
 function overview(c){
  const sc=scores[c.id]||{};
- const scale=d=>`<div class="scale" role="group" aria-label="${DIMS[d]}评分">${[1,2,3,4].map(n=>`<button data-score="${d}" data-value="${n}" class="${sc[d]===n?'on':''}" aria-pressed="${sc[d]===n}">${n}</button>`).join('')}</div>`;
+ const scale=d=>`<div class="scale" role="group" aria-label="${DIMS[d]}评分">${[0,1,2,3,4,5].map(n=>`<button data-score="${d}" data-value="${n}" class="${sc[d]===n?'on':''}" aria-pressed="${sc[d]===n}">${n}</button>`).join('')}</div>`;
  const left=`<div class="panel"><h3>画像</h3><p class="lead">${esc(c.profile)}</p></div><div class="panel"><h3>简历核实点 · 开场 5 分钟</h3><ul>${c.verify.map(v=>`<li>${esc(v.point)}<span class="ask">问法：${esc(v.ask)}</span></li>`).join('')}</ul></div><div class="panel"><h3>面试策略</h3><ul>${c.focus.map(f=>`<li>${esc(f)}</li>`).join('')}</ul></div>`;
- const right=`<div class="panel"><h3>本场打分</h3>${Object.keys(DIMS).map(d=>`<div class="score-row">${dimChip(d)}${scale(d)}</div>`).join('')}<textarea class="score-note" data-score-note="${esc(c.id)}" placeholder="关键回答、高分 / 风险信号、下一轮重点…">${esc(sc.note||'')}</textarea><div class="panel-actions"><button class="btn" data-score-copy="${esc(c.id)}">复制评估摘要</button></div></div><div class="panel"><h3>分块</h3><div class="block-list">${c.blocks.map(b=>`<button data-tab="${esc(b.id)}">${b.kind==='project'?esc(blockShort(c,b))+' · ':''}${esc(b.short||b.name)}<span>${b.questions.length} 题</span></button>`).join('')}</div></div>`;
+ const right=`<div class="panel"><h3>本场打分 · 0~5 分</h3>${Object.keys(DIMS).map(d=>`<div class="score-row">${dimChip(d)}${scale(d)}</div>`).join('')}<textarea class="score-note" data-score-note="${esc(c.id)}" placeholder="关键回答、高分 / 风险信号、下一轮重点…">${esc(sc.note||'')}</textarea><div class="panel-actions"><button class="btn" data-score-copy="${esc(c.id)}">复制评估摘要</button></div></div><div class="panel"><h3>分块</h3><div class="block-list">${c.blocks.map(b=>`<button data-tab="${esc(b.id)}">${esc(blockTitle(c,b))}<span>${b.questions.length} 题</span></button>`).join('')}</div></div>`;
  return `<div class="overview"><div>${left}</div><div>${right}</div></div>`;
 }
 
@@ -173,16 +179,17 @@ function render(resetScroll=true){
   results=[];$('pageTitle').textContent='简历板块';$('pageSub').textContent='需要密码';$('cards').innerHTML=unlockPanel();setTimeout(()=>$('unlockInput')?.focus(),0);
  }else if(!c){
   results=[];$('pageTitle').textContent='简历板块';$('pageSub').textContent=`${CANDS.length} 份简历，每份一个独立板块；进入后按简历分块提问`;
-  $('cards').innerHTML=`<div class="boards">${CANDS.map(boardCard).join('')}<div class="board add">新简历会追加为新的板块（E、F…），已有板块的记录和打分不受影响。${DATA.locked?'<button class="link" data-lock>锁定并忘记本机密码</button>':''}</div></div>`;
+  $('cards').innerHTML=`<div class="boards">${CANDS.map(boardCard).join('')}<div class="board add">新简历会按收到顺序追加为新的板块，已有板块的记录和打分不受影响。${DATA.locked?'<button class="link" data-lock>锁定并忘记本机密码</button>':''}</div></div>`;
  }else{
   const n=b=>b.questions.filter(q=>matches(items.get(q.id))).length;
-  $('blockTabs').innerHTML=`<button role="tab" data-tab="overview" class="${state.tab==='overview'?'active':''}">概览</button><button role="tab" data-tab="all" class="${state.tab==='all'?'active':''}">全部题目<small>${c.blocks.reduce((s,b)=>s+n(b),0)}</small></button>`+c.blocks.map(b=>`<button role="tab" data-tab="${esc(b.id)}" class="${state.tab===b.id?'active':''}" title="${esc(b.name)}">${esc(b.short||b.name)}<small>${n(b)}</small></button>`).join('');
+  $('blockTabs').innerHTML=`<button role="tab" data-tab="overview" class="${state.tab==='overview'?'active':''}">概览</button><button role="tab" data-tab="all" class="${state.tab==='all'?'active':''}">全部题目<small>${c.blocks.reduce((s,b)=>s+n(b),0)}</small></button>`+(c.blocks.some(b=>b.kind==='dim')?`<button role="tab" data-tab="dims" class="${state.tab==='dims'||isDimBlock(state.tab)?'active':''}">五维题<small>${c.blocks.filter(b=>b.kind==='dim').reduce((s,b)=>s+n(b),0)}</small></button>`:'')+c.blocks.filter(b=>b.kind!=='dim').map(b=>`<button role="tab" data-tab="${esc(b.id)}" class="${state.tab===b.id?'active':''}" title="${esc(b.name)}">${esc(b.short||b.name)}<small>${n(b)}</small></button>`).join('');
   $('pageTitle').textContent=`${c.label} · ${c.headline}`;
   if(state.tab==='overview'){results=[...items.values()].filter(q=>resumeMatch(q,true));$('pageSub').textContent=`${c.source||''}${c.receivedAt?' · 收到 '+c.receivedAt:''} · ${c.blocks.length} 块 · ${results.length} 题`;$('cards').innerHTML=overview(c)}
   else{
    results=[...items.values()].filter(q=>resumeMatch(q));
-   $('pageSub').textContent=`${results.length} 道题${filterText?' · '+filterText:''} · 块内顺序：表达 → 专业 → 应变`;
-   let html='';for(const b of c.blocks){const qs=results.filter(q=>q.block===b.id);if(!qs.length)continue;html+=`<div class="block-head"><h2>${esc(blockShort(c,b))} · ${esc(b.name)}<span>${esc(b.period||'')}${b.period?' · ':''}${qs.length} 题</span></h2></div><p class="excerpt">${esc(b.excerpt)}</p>`+qs.map(card).join('')}
+   const dimView=state.tab==='dims'||isDimBlock(state.tab);
+   $('pageSub').textContent=`${results.length} 道题${filterText?' · '+filterText:''} · ${dimView?'五维题：结合这份简历，按专业度、自驱力、性格特质、逻辑思维、适应力提问':'块内顺序：逻辑思维 → 专业度 → 适应力'}`;
+   let html='';for(const b of c.blocks){const qs=results.filter(q=>q.block===b.id);if(!qs.length)continue;html+=`<div class="block-head"><h2>${b.kind==='dim'?'五维题 · '+esc(b.name):esc(blockShort(c,b))+' · '+esc(b.name)}<span>${esc(b.period||'')}${b.period?' · ':''}${qs.length} 题</span></h2></div><p class="excerpt">${esc(b.excerpt)}</p>`+qs.map(card).join('')}
    $('cards').innerHTML=html||empty;
   }
  }
@@ -281,7 +288,7 @@ $('cards').addEventListener('click',async e=>{
  const copy=t.closest('[data-copy]'),dl=t.closest('[data-code-download]');
  if(copy||dl){const q=items.get(copy?copy.dataset.copy:dl.dataset.codeDownload);if(copy){try{await copyText(q.code);notify('代码已复制')}catch(err){notify('浏览器限制复制，请改用下载')}}else{const url=URL.createObjectURL(new Blob([q.code],{type:'text/x-python;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=`q${q.id}.py`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}return}
  const s=t.closest('[data-score]');if(s){const c=state.cand,v=Number(s.dataset.value);scores[c]={...scores[c],[s.dataset.score]:scores[c]?.[s.dataset.score]===v?undefined:v};persist();render(false);return}
- const sc=t.closest('[data-score-copy]');if(sc){const c=candById(sc.dataset.scoreCopy),v=scores[c.id]||{},done=[...items.values()].filter(q=>q.kind==='resume'&&q.cand===c.id&&asked.has(q.key));const text=[`${c.label}（${c.headline}）评估摘要`,...Object.entries(DIMS).map(([d,n])=>`${n}：${v[d]??'未评'} / 4`),`已问 ${done.length} 题${done.length?'：'+done.map(qLabel).join('、'):''}`,`备注：${v.note||'无'}`].join('\n');try{await copyText(text);notify('评估摘要已复制',{desc:'可直接粘贴到面试反馈'})}catch(err){notify('浏览器限制复制，请手动记录')}return}
+ const sc=t.closest('[data-score-copy]');if(sc){const c=candById(sc.dataset.scoreCopy),v=scores[c.id]||{},done=[...items.values()].filter(q=>q.kind==='resume'&&q.cand===c.id&&asked.has(q.key));const text=[`${c.label}（${c.headline}）评估摘要`,...Object.entries(DIMS).map(([d,n])=>`${n}：${v[d]??'未评'} / 5`),`已问 ${done.length} 题${done.length?'：'+done.map(qLabel).join('、'):''}`,`备注：${v.note||'无'}`].join('\n');try{await copyText(text);notify('评估摘要已复制',{desc:'可直接粘贴到面试反馈'})}catch(err){notify('浏览器限制复制，请手动记录')}return}
  const tg=t.closest('[data-toggle]');if(tg){const k=tg.dataset.key,set=tg.dataset.toggle==='saved'?saved:asked,was=set.has(k);was?set.delete(k):set.add(k);persist();render(false);notify(set===saved?(was?'已移出题单':'已加入题单'):(was?'已标为未问':'已标为已问'),{desc:keyLabel(k),undo:()=>{was?set.add(k):set.delete(k);persist();render(false)}})}
 });
 document.addEventListener('keydown',e=>{

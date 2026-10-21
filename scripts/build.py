@@ -13,10 +13,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 import vault  # noqa: E402
-DIMS = {"pro", "exp", "ext"}
+# 五个评估维度（见 docs/五维题规范.md）。早期题目用三维标签，构建时换成对应的新代码。
+DIMS = {"pro", "drive", "trait", "logic", "adapt"}
+LEGACY = {"exp": "logic", "ext": "adapt"}
+# 简历分块题覆盖的三维；自驱力、性格特质集中在每份简历的「五维题」块（kind: dim）。
+BLOCK_DIMS = {"pro", "logic", "adapt"}
 
 # 新增分类接在原 23 个分类之后，下标与 data/pool/added.json 中的 category 对应。
-# 侧栏分组：27 个分类归为 7 组；没有题目的分类（如已拆分完的「补充深度场景与追问」）在页面上自动隐藏。
+# 侧栏分组：28 个分类归为 7 组；没有题目的分类（如已拆分完的「补充深度场景与追问」）在页面上自动隐藏。
 GROUPS = [
     ("架构与编排", [0, 4, 9, 3, 21, 22]),
     ("模型与生成", [2, 14, 25]),
@@ -24,7 +28,7 @@ GROUPS = [
     ("工程与可靠性", [1, 11, 13, 5, 12]),
     ("质量与交付", [10, 16, 17, 19]),
     ("业务场景", [15, 20]),
-    ("现场与表达", [18, 26]),
+    ("现场与表达", [27, 18, 26]),
 ]
 
 NEW_CATEGORIES = [
@@ -32,6 +36,7 @@ NEW_CATEGORIES = [
     "知识图谱与 GraphRAG",
     "多模态、文档解析与领域微调",
     "项目表达与情景应变",
+    "五维通用题",
 ]
 
 
@@ -63,7 +68,7 @@ def build_pool():
     curation = load(ROOT / "data/pool/curation.json")
     for q in questions:
         fix = curation[str(q["id"])]
-        q["dims"] = [fix["dim"]]
+        q["dims"] = [LEGACY.get(fix["dim"], fix["dim"])]
         if fix.get("question_short"):
             q["question"] = fix["question_short"]
         if "category" in fix:
@@ -86,13 +91,21 @@ def load_candidates():
     seen = set()
     for c in candidates:
         for b in c["blocks"]:
-            dims = {q["dim"] for q in b["questions"]}
-            if dims != DIMS:
-                print(f"warning: {b['id']} covers only {sorted(dims)}", file=sys.stderr)
             for q in b["questions"]:
+                q["dim"] = LEGACY.get(q["dim"], q["dim"])
                 assert q["id"] not in seen, q["id"]
                 assert q["dim"] in DIMS, q["id"]
                 seen.add(q["id"])
+            dims = {q["dim"] for q in b["questions"]}
+            if b.get("kind") == "dim":
+                assert dims == {b["dim"]}, f"{b['id']}: questions must all be {b['dim']}"
+                if not 6 <= len(b["questions"]) <= 10:
+                    print(f"warning: {b['id']} has {len(b['questions'])} questions (expected 6-10)", file=sys.stderr)
+            elif dims != BLOCK_DIMS:
+                print(f"warning: {b['id']} covers only {sorted(dims)}", file=sys.stderr)
+        missing = DIMS - {b.get("dim") for b in c["blocks"] if b.get("kind") == "dim"}
+        if missing:
+            print(f"warning: {c['id']} has no 五维题 for {sorted(missing)}", file=sys.stderr)
         c.pop("poolCandidates", None)
     return candidates
 
