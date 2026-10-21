@@ -78,6 +78,14 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
 
   // 3. 面试中：录音约 12 秒（两段），边录边转写
   await page.click('[data-tab-go=live]');
+  // 面试前检查：麦克风有声音、试录 5 秒能转写出文字。
+  await page.waitForSelector('#checkBox #micSelect');
+  await page.waitForSelector('#heard-mic.ok', { timeout: 15000 });
+  check(true, 'device check: microphone level detected');
+  await page.click('#testMic');
+  await page.waitForSelector('.check-result.ok', { timeout: 30000 });
+  check((await page.textContent('.check-result.ok')).includes('转写正常'), 'device check: test clip transcribed');
+  await shot('4-check');
   await page.click('#recStart');
   await page.waitForSelector('#recStop').catch(async () => { await shot('err-live'); console.log('TOAST', await page.textContent('#toast')); });
   await page.waitForTimeout(3000);

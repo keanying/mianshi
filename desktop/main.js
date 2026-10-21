@@ -191,6 +191,37 @@ handle('audio:retry', async (id) => {
   }
   return { fixed, interview: store.get(id) };
 });
+// 面试前检查：试录一小段，确认转写服务和麦克风都正常。
+handle('audio:test', async (arrayBuffer) => {
+  const s = settings.getSecret();
+  return transcribe({ baseURL: s.asrBaseURL, apiKey: s.asrKey, model: s.asrModel, wav: Buffer.from(arrayBuffer) });
+});
+// 重新转写整场录音：之前转写失败、Key 没配好或被当成静音跳过时，用保存下来的录音补救。
+handle('audio:retranscribe', async (id) => {
+  const i = store.get(id), s = settings.getSecret();
+  const dir = path.join(store.dirOf(id), 'audio');
+  const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /^part-\d+\.wav$/.test(f)).sort() : [];
+  if (!files.length) throw new Error('这场面试没有保存的录音。');
+  let done = 0, failed = 0;
+  for (const f of files) {
+    const index = Number(f.match(/\d+/)[0]);
+    const part = { ...((i.parts || []).find((p) => p.index === index) || { index, start: index * s.chunkSeconds, speaker: '' }), silent: false };
+    try {
+      const text = await transcribeSegment(id, part, fs.readFileSync(path.join(dir, f)));
+      send('asr:segment', { id, ...part, text });
+      done++;
+    } catch (err) {
+      send('asr:segment', { id, ...part, error: err.message });
+      failed++;
+    }
+  }
+  return { done, failed, interview: store.get(id) };
+});
+handle('audio:open', (id) => {
+  const file = path.join(store.dirOf(id), '完整录音.wav');
+  if (!fs.existsSync(file)) throw new Error('还没有完整录音，结束录音后会自动生成。');
+  return shell.openPath(file);
+});
 handle('transcript:speakers', async (id) => {
   const i = store.get(id), sentences = prompts.splitSentences(i.transcript);
   if (!sentences.length) throw new Error('还没有转写内容。');

@@ -10,12 +10,15 @@ const DEFAULTS = {
   baseURL: PROVIDERS.glm.baseURL,
   model: PROVIDERS.glm.models[0],
   thinking: false, // 默认关闭模型的深度思考
-  recordMode: 'offline', // offline 面对面一个麦克风；online 线上面试，另录电脑声音作为候选人
+  recordMode: 'offline', // offline 面对面一个麦克风；online 线上面试，另录候选人的声音
+  micId: '', // 面试官麦克风，空为系统默认
+  outputId: '', // 耳机 / 扬声器，空为系统默认（只用于播放测试音）
+  candidateSource: 'system', // 线上面试时候选人声音来源：system 电脑声音，或某个输入设备 id
   asrEnabled: true,
   asrBaseURL: DEFAULT_ASR.baseURL,
   asrModel: DEFAULT_ASR.model,
   asrUseChatKey: true,
-  chunkSeconds: 25,
+  chunkSeconds: 15,
   questionCount: 20,
   position: '',
   jd: '',
