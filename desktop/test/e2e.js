@@ -16,11 +16,22 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   const { server, url, calls } = await mock.start();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'interview-e2e-'));
   const exportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'interview-export-'));
+  // 虚拟麦克风的声音：1.5 秒“说话”（带起伏的音调）+ 1.2 秒安静，循环播放，用来测试说话检测和按停顿切段。
+  const speech = path.join(dataDir, 'speech.wav');
+  {
+    const rate = 16000, on = 1.5 * rate, total = 2.7 * rate, pcm = Buffer.alloc(total * 2);
+    for (let n = 0; n < on; n++) pcm.writeInt16LE(Math.round(Math.sin(n / rate * 2 * Math.PI * (220 + 80 * Math.sin(n / rate * 6))) * 9000 * (0.6 + 0.4 * Math.sin(n / rate * 9))), n * 2);
+    const header = Buffer.alloc(44);
+    header.write('RIFF', 0); header.writeUInt32LE(36 + pcm.length, 4); header.write('WAVE', 8); header.write('fmt ', 12);
+    header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20); header.writeUInt16LE(1, 22); header.writeUInt32LE(rate, 24);
+    header.writeUInt32LE(rate * 2, 28); header.writeUInt16LE(2, 32); header.writeUInt16LE(16, 34); header.write('data', 36); header.writeUInt32LE(pcm.length, 40);
+    fs.writeFileSync(speech, Buffer.concat([header, pcm]));
+  }
   const app = await electron.launch({
     // E2E_APP 指向打包后的可执行文件时，测试的是安装包里的应用（代码在 app.asar 中）。
     executablePath: process.env.E2E_APP || require('electron'),
     args: process.env.E2E_APP ? ['--no-sandbox', '--disable-gpu'] : ['--no-sandbox', '--disable-gpu', ROOT],
-    env: { ...process.env, INTERVIEW_DATA_DIR: dataDir, INTERVIEW_FAKE_MEDIA: '1' },
+    env: { ...process.env, INTERVIEW_DATA_DIR: dataDir, INTERVIEW_FAKE_MEDIA: '1', INTERVIEW_FAKE_AUDIO: speech },
   });
   app.process().stderr.on('data', (d) => { if (process.env.E2E_VERBOSE) process.stderr.write(d); });
   app.process().stdout.on('data', (d) => { if (process.env.E2E_VERBOSE) process.stdout.write(d); });
@@ -66,15 +77,17 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   // 2. 音频调试：面试官试录转写、模拟候选人说话并转写。
   await page.click('[data-tab-go=audio]');
   await page.waitForSelector('#audioBox #micSelect');
-  await page.waitForSelector('#heard-mic.ok', { timeout: 15000 });
-  check(true, 'audio step: microphone level detected');
+  await page.waitForSelector('#speak-mic.on', { timeout: 15000 });
+  check(true, 'audio step: speaking detected on the microphone');
+  check((await page.locator('.badge.ok').count()) === 0, 'audio step: nothing marked as passed before testing');
   await page.click('#testMic');
-  await page.waitForSelector('.check-result.ok', { timeout: 30000 });
-  check((await page.textContent('.check-result.ok')).includes('转写正常'), 'audio step: interviewer test clip transcribed');
+  await page.waitForSelector('.side-card:first-child .lines li.ok', { timeout: 30000 });
+  check((await page.textContent('.side-card:first-child .lines li.ok')).includes('候选人说'), 'audio step: interviewer utterance detected and transcribed');
+  await page.click('#testMic'); // 停止测试，避免和模拟候选人混在一起
   await page.click('#simCand');
-  await page.waitForFunction(() => document.querySelectorAll('.check-result.ok').length >= 2, null, { timeout: 30000 })
+  await page.waitForSelector('.side-card:nth-child(2) .lines li.ok', { timeout: 30000 })
     .catch(async (e) => { console.log('SIM', await page.textContent('#audioBox')); throw e; });
-  check((await page.locator('.badge.ok').count()) === 2, 'audio step: simulated candidate transcribed, both checks marked');
+  check((await page.locator('.badge.ok').count()) === 2, 'audio step: simulated candidate played, heard and transcribed');
   await shot('2-audio');
   // 3. 生成面试题
   await page.click('[data-tab-go=plan]');

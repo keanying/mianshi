@@ -33,35 +33,72 @@ async function candidateStream(source) {
   return navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: source }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
 }
 
-// 试录：从一路声音里录 seconds 秒，返回 16kHz wav，用于面试前检查转写是否正常。
-async function recordClip(stream, seconds = 5) {
-  const ctx = new AudioContext(), source = ctx.createMediaStreamSource(stream), processor = ctx.createScriptProcessor(4096, 1, 1);
-  const ratio = ctx.sampleRate / TARGET_RATE, chunks = [];
-  let pos = 0, length = 0;
-  source.connect(processor);
-  processor.connect(ctx.destination);
-  await new Promise((resolve) => {
-    processor.onaudioprocess = (e) => {
-      const input = e.inputBuffer.getChannelData(0), out = new Int16Array(Math.floor((input.length - pos) / ratio) + 1);
-      let n = 0;
-      for (; pos < input.length; pos += ratio) {
-        const c = Math.max(-1, Math.min(1, input[Math.floor(pos)]));
-        out[n++] = c < 0 ? c * 0x8000 : c * 0x7fff;
+// 说话检测（音频调试用）：持续估计背景噪声，音量明显高于噪声并持续 0.15 秒才算开始说话，
+// 安静 0.8 秒算说完一句，把这一句（含开头前 0.3 秒）交给 onUtterance 转写。
+class Listener {
+  constructor(stream, { onLevel, onUtterance, maxSeconds = 12 }) {
+    this.ctx = new AudioContext();
+    this.source = this.ctx.createMediaStreamSource(stream);
+    this.processor = this.ctx.createScriptProcessor(2048, 1, 1);
+    this.source.connect(this.processor);
+    this.processor.connect(this.ctx.destination);
+    Object.assign(this, { onLevel, onUtterance, maxSeconds, ratio: this.ctx.sampleRate / TARGET_RATE, pos: 0 });
+    Object.assign(this, { noise: 0.004, speaking: false, loudRun: 0, quietRun: 0, pre: [], buf: [], length: 0 });
+    this.processor.onaudioprocess = (e) => this.process(e.inputBuffer.getChannelData(0));
+  }
+
+  resample(input) {
+    const out = new Int16Array(Math.floor((input.length - this.pos) / this.ratio) + 1);
+    let n = 0;
+    for (; this.pos < input.length; this.pos += this.ratio) {
+      const c = Math.max(-1, Math.min(1, input[Math.floor(this.pos)]));
+      out[n++] = c < 0 ? c * 0x8000 : c * 0x7fff;
+    }
+    this.pos -= input.length;
+    return out.subarray(0, n);
+  }
+
+  process(input) {
+    let sum = 0;
+    for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
+    const rms = Math.sqrt(sum / input.length), seconds = input.length / this.ctx.sampleRate, pcm = this.resample(input);
+    const threshold = Math.max(0.015, this.noise * 3);
+    if (!this.speaking) {
+      // 背景噪声：变小时马上跟上，变大时慢慢抬高（避免把说话当成噪声）。
+      this.noise = rms < this.noise ? this.noise * 0.8 + rms * 0.2 : this.noise * 0.995 + rms * 0.005;
+      this.pre.push(pcm);
+      if (this.pre.length > Math.ceil(0.3 / seconds)) this.pre.shift();
+      this.loudRun = rms > threshold ? this.loudRun + seconds : 0;
+      if (this.loudRun >= 0.15) {
+        this.speaking = true;
+        this.buf = [...this.pre];
+        this.length = this.buf.reduce((n, b) => n + b.length, 0);
+        this.quietRun = 0;
       }
-      pos -= input.length;
-      chunks.push(out.subarray(0, n));
-      length += n;
-      if (length >= seconds * TARGET_RATE) resolve();
-    };
-  });
-  processor.onaudioprocess = null;
-  source.disconnect();
-  processor.disconnect();
-  await ctx.close();
-  const all = new Int16Array(length);
-  let o = 0;
-  for (const c of chunks) { all.set(c, o); o += c.length; }
-  return encodeWav(all);
+    } else {
+      this.buf.push(pcm);
+      this.length += pcm.length;
+      this.quietRun = rms < threshold ? this.quietRun + seconds : 0;
+      if (this.quietRun >= 0.8 || this.length >= this.maxSeconds * TARGET_RATE) {
+        const all = new Int16Array(this.length);
+        let o = 0;
+        for (const b of this.buf) { all.set(b, o); o += b.length; }
+        this.speaking = false;
+        this.buf = [];
+        this.pre = [];
+        this.loudRun = 0;
+        if (this.onUtterance) this.onUtterance(encodeWav(all));
+      }
+    }
+    if (this.onLevel) this.onLevel({ level: rms, speaking: this.speaking });
+  }
+
+  close() {
+    this.processor.onaudioprocess = null;
+    this.processor.disconnect();
+    this.source.disconnect();
+    return this.ctx.close();
+  }
 }
 
 class Track {
@@ -195,5 +232,5 @@ class Recorder {
   }
 }
 
-Object.assign(window, { Recorder, recordClip, candidateStream, micConstraints });
+Object.assign(window, { Recorder, Listener, candidateStream, micConstraints });
 })();
