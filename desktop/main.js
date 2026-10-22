@@ -5,7 +5,7 @@ const path = require('path');
 const { createStore } = require('./lib/store');
 const { createSettings } = require('./lib/settings');
 const { PROVIDERS, chat, chatJSON } = require('./lib/llm');
-const { transcribe, silentWav } = require('./lib/asr');
+const { transcribe, synthesize, silentWav } = require('./lib/asr');
 const { readResume, SUPPORTED } = require('./lib/resume');
 const { markEcho } = require('./src/text-match');
 const prompts = require('./lib/prompts');
@@ -212,6 +212,16 @@ handle('audio:retry', async (id) => {
 handle('audio:test', async (arrayBuffer) => {
   const s = settings.getSecret();
   return transcribe({ baseURL: s.asrBaseURL, apiKey: s.asrKey, model: s.asrModel, wav: Buffer.from(arrayBuffer) });
+});
+// 模拟候选人说话用的朗读音频：用 GLM-TTS 合成一次后缓存，界面用选定的播放设备播放。
+handle('audio:tts', async (text) => {
+  const crypto = require('crypto');
+  const file = path.join(app.getPath('userData'), `tts-${crypto.createHash('md5').update(text).digest('hex').slice(0, 10)}.wav`);
+  if (fs.existsSync(file)) return fs.readFileSync(file);
+  const s = settings.getSecret();
+  const wav = await synthesize({ baseURL: s.asrBaseURL, apiKey: s.asrKey, text });
+  fs.writeFileSync(file, wav);
+  return wav;
 });
 // 重新转写整场录音：之前转写失败、Key 没配好或被当成静音跳过时，用保存下来的录音补救。
 handle('audio:retranscribe', async (id) => {

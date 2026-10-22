@@ -94,6 +94,11 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await page.waitForSelector('.side-card:nth-child(2) .lines li.ok', { timeout: 30000 })
     .catch(async (e) => { console.log('SIM', await page.textContent('#audioBox')); throw e; });
   check((await page.locator('.badge.ok').count()) === 2, 'audio step: simulated candidate played, heard and transcribed');
+  check(calls.some((c) => c.url.endsWith('/audio/speech')), 'audio step: simulated candidate voice synthesized with GLM-TTS');
+  await page.click('#playTone');
+  await page.waitForSelector('#toneYes', { timeout: 10000 });
+  await page.click('#toneYes');
+  check((await page.textContent('#audioBox')).includes('播放设备正常'), 'audio step: test tone played and confirmed');
   setAsr(null);
   await shot('2-audio');
   // 3. 生成面试题

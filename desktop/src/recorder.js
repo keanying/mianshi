@@ -33,7 +33,8 @@ async function candidateStream(source) {
   return navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: source }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
 }
 
-// 说话检测（音频调试用）：持续估计背景噪声，音量明显高于噪声并持续 0.15 秒才算开始说话，
+// 说话检测（音频调试用）：背景噪声取最近 1.5 秒里最安静的音量（持续不断的底噪、电流声会被当成噪声，
+// 不会被当成说话）；音量明显高于噪声并持续 0.15 秒才算开始说话，
 // 安静 0.8 秒算说完一句，把这一句（含开头前 0.3 秒）交给 onUtterance 转写。
 class Listener {
   constructor(stream, { onLevel, onUtterance, maxSeconds = 12 }) {
@@ -43,7 +44,7 @@ class Listener {
     this.source.connect(this.processor);
     this.processor.connect(this.ctx.destination);
     Object.assign(this, { onLevel, onUtterance, maxSeconds, ratio: this.ctx.sampleRate / TARGET_RATE, pos: 0 });
-    Object.assign(this, { noise: 0.004, speaking: false, loudRun: 0, quietRun: 0, pre: [], buf: [], length: 0 });
+    Object.assign(this, { noise: 0.004, history: [], speaking: false, loudRun: 0, quietRun: 0, pre: [], buf: [], length: 0 });
     this.processor.onaudioprocess = (e) => this.process(e.inputBuffer.getChannelData(0));
   }
 
@@ -62,10 +63,11 @@ class Listener {
     let sum = 0;
     for (let i = 0; i < input.length; i++) sum += input[i] * input[i];
     const rms = Math.sqrt(sum / input.length), seconds = input.length / this.ctx.sampleRate, pcm = this.resample(input);
+    this.history.push(rms);
+    if (this.history.length > Math.ceil(1.5 / seconds)) this.history.shift();
+    this.noise = Math.max(0.002, Math.min(...this.history));
     const threshold = Math.max(0.015, this.noise * 3);
     if (!this.speaking) {
-      // 背景噪声：变小时马上跟上，变大时慢慢抬高（避免把说话当成噪声）。
-      this.noise = rms < this.noise ? this.noise * 0.8 + rms * 0.2 : this.noise * 0.995 + rms * 0.005;
       this.pre.push(pcm);
       if (this.pre.length > Math.ceil(0.3 / seconds)) this.pre.shift();
       this.loudRun = rms > threshold ? this.loudRun + seconds : 0;
