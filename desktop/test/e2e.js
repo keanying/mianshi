@@ -135,7 +135,7 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
 
   // 3. 面试中：录音约 12 秒（两段），边录边转写
   await page.click('[data-tab-go=live]');
-  check((await page.textContent('.rec-note')).includes('音频已调试'), 'live page shows the audio check passed');
+  check(!(await page.locator('.rec-note, .warn-chip').count()), 'live page: no hint text once the audio check passed');
   await page.click('#recStart');
   await page.waitForSelector('#recStop').catch(async () => { await shot('err-live'); console.log('TOAST', await page.textContent('#toast')); });
   await page.waitForTimeout(3000);
