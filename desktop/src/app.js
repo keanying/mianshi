@@ -135,6 +135,18 @@ new MutationObserver(() => {
   if (ddClose && !ddAnchor?.isConnected) ddClose();
 }).observe(document.body, { childList: true, subtree: true });
 
+// 按钮水波纹（参照 RippleButton）：按下时从点击位置扩散一圈，600ms 后淡出。颜色由 CSS 变量 --ripple 决定。
+const RIPPLE_TARGETS = '.btn, .nav button, .tabs button, .filters button, .dd-trigger, .score-btn, .tick, .q-row';
+document.addEventListener('pointerdown', (e) => {
+  const el = e.button === 0 && e.target.closest(RIPPLE_TARGETS);
+  if (!el || el.disabled || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const r = el.getBoundingClientRect(), size = Math.max(r.width, r.height) * 2;
+  const dot = document.createElement('span');
+  dot.className = 'ripple';
+  dot.style.cssText = `width:${size}px;height:${size}px;left:${e.clientX - r.left - size / 2}px;top:${e.clientY - r.top - size / 2}px`;
+  el.appendChild(dot);
+  dot.addEventListener('animationend', () => dot.remove());
+}, true);
 // 应用内确认框（代替系统弹窗）：返回 true / false。危险操作默认聚焦「取消」，Esc 取消，点遮罩取消。
 function ask({ title, body = '', ok = '确定', cancel = '取消', danger = false }) {
   return new Promise((resolve) => {

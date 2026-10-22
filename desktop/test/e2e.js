@@ -58,6 +58,7 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await page.fill('input[name=model]', 'mock-model');
   await page.fill('input[name=apiKey]', 'test-key');
   await page.click('#testLLM');
+  check(await page.locator('#testLLM .ripple').count() === 1, 'buttons ripple when pressed');
   await page.waitForSelector('#testLLMResult.ok', { timeout: 15000 });
   await page.click('[data-stab=asr]');
   await page.uncheck('input[name=asrUseChatKey]');

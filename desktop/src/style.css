@@ -106,6 +106,11 @@ textarea:focus,input:focus,select:focus{outline:none;border-color:var(--accent);
 .toast.info{border-left-color:var(--info)}.toast.info .t-ico{background:var(--info);font-family:Georgia,serif;font-style:italic}
 .toast.warn{border-left-color:#f59e0b}.toast.warn .t-ico{background:#f59e0b}
 .toast.error{border-left-color:var(--bad)}.toast.error .t-ico{background:var(--bad)}
+/* 按钮水波纹 */
+.btn,.nav button,.tabs button,.filters button,.dd-trigger,.score-btn,.tick,.q-row{position:relative;overflow:hidden;--ripple:#0f766e2e}
+.btn.primary,.btn.danger,.btn.rec,.btn.dark{--ripple:#ffffff59}
+.ripple{position:absolute;border-radius:50%;background:var(--ripple);transform:scale(0);opacity:1;pointer-events:none;animation:ripple .6s ease-out forwards}
+@keyframes ripple{to{transform:scale(1);opacity:0}}
 /* 下拉菜单（参照 Semi Dropdown） */
 .native-sel{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;border:0!important;opacity:0;pointer-events:none}
 .dd-trigger{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;height:44px;padding:0 12px;border:1.5px solid transparent;border-radius:12px;background:#f4f4f5;font-size:14px;color:var(--ink);text-align:left}
@@ -454,10 +459,10 @@ body.focus .side,body.focus .iv-head{display:none}
 
 /* ---------- 设置 ---------- */
 .tabs{display:flex;gap:32px;max-width:860px;margin:-4px 0 20px;border-bottom:1px solid var(--line)}
-.tabs button{position:relative;display:flex;align-items:center;gap:8px;padding:10px 2px 12px;font-size:15px;color:var(--muted)}
+.tabs button{margin-bottom:-1px;position:relative;display:flex;align-items:center;gap:8px;padding:10px 2px 12px;font-size:15px;color:var(--muted)}
 .tabs button:hover{color:var(--ink-2)}
 .tabs button.on{color:var(--accent);font-weight:600}
-.tabs button.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;border-radius:2px;background:var(--accent)}
+.tabs button.on::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;border-radius:2px;background:var(--accent)}
 .tdot{width:7px;height:7px;border-radius:50%;background:#cbd5e1}
 .tdot.ok{background:#22c55e}.tdot.bad{background:#ef4444}.tdot.checking{background:#f59e0b;animation:blink 1s infinite}
 .sys{display:flex;flex-direction:column;gap:20px}
