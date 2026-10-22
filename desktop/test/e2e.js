@@ -209,6 +209,7 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   // 6. 重新开始面试：打开记录，清空录音、转写和报告，简历和题目保留。
   await page.click('.tr[data-open]');
   await page.click('.steps [data-tab=live]');
+  check(!(await page.locator('#recStart').count()) && (await page.textContent('#restartInterview')).includes('重新开始'), 'evaluated interview only offers to restart');
   await page.click('#restartInterview');
   check(await page.isVisible('.modal [data-cancel]:focus'), 'confirm dialog focuses cancel for a destructive action');
   await page.waitForTimeout(300);

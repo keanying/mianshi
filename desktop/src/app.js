@@ -1146,14 +1146,16 @@ function renderLive(body) {
       <label><input type="radio" name="recordMode" value="online" id="systemAudio" ${online ? 'checked' : ''}> 线上（戴耳机）</label></div>`
     : `<p class="hint" id="recHint"><b>${esc(i.name || '候选人')}</b> · ${rec === 'paused' ? '已暂停' : '录音中'} · ${esc(modeText)}</p>`}
     <div class="rec-buttons">
-     ${rec === 'idle' && (i.audioParts || (i.transcript || []).length || i.evaluation) ? '<button class="btn" id="restartInterview">重新开始面试</button>' : ''}
-     ${rec === 'idle' ? `<button class="btn rec big" id="recStart">● ${i.audioParts ? '继续面试（接着录）' : '开始面试'}</button>` : ''}
+     ${rec === 'idle' && i.evaluation ? `<button class="btn primary big" id="restartInterview">${icon('refresh')}重新开始</button>` : ''}
+     ${rec === 'idle' && !i.evaluation && (i.audioParts || (i.transcript || []).length) ? '<button class="btn big" id="restartInterview">重新开始</button>' : ''}
+     ${rec === 'idle' && !i.evaluation ? `<button class="btn rec big" id="recStart">● ${i.audioParts ? '继续面试' : '开始面试'}</button>` : ''}
      ${rec === 'recording' ? '<button class="btn big" id="recPause">暂停</button>' : ''}
      ${rec === 'paused' ? '<button class="btn big" id="recResume">继续</button>' : ''}
      ${rec !== 'idle' ? '<button class="btn dark big" id="recStop">结束面试</button>' : ''}
     </div>
    </div>
-   ${rec === 'idle' ? `<p class="rec-note">点「开始面试」后自动录音、边录边转写，界面会进入专注模式。录音前请告知候选人并征得同意。${s.asrEnabled ? '' : ' 自动转写已关闭，可在面试后导入转写文本。'}${checked ? ' <span class="ok">✓ 音频已调试</span>' : ' <b class="warn">音频还没调试好</b>'}<button class="link" data-tab-go="audio">${checked ? '重新调试' : '去调试音频'}</button></p>` : ''}
+   ${rec === 'idle' && i.evaluation ? '<p class="rec-note">这场面试已经评估过了，可以在「5 评估报告」查看。要重新面试，点「重新开始」：录音、转写、笔记和报告会清空，简历和面试题保留。</p>' : ''}
+   ${rec === 'idle' && !i.evaluation ? `<p class="rec-note">点「开始面试」后自动录音、边录边转写，界面会进入专注模式。录音前请告知候选人并征得同意。${s.asrEnabled ? '' : ' 自动转写已关闭，可在面试后导入转写文本。'}${checked ? ' <span class="ok">✓ 音频已调试</span>' : ' <b class="warn">音频还没调试好</b>'}<button class="link" data-tab-go="audio">${checked ? '重新调试' : '去调试音频'}</button></p>` : ''}
    <div class="board">
     <section class="col col-list"><div class="col-head">面试题<span class="chip" id="askedCount">已问 ${qs.filter((q) => q.asked).length} / ${qs.length}</span></div><div class="q-list" id="qList">${qListHTML(qs)}</div></section>
     <section class="col col-main" id="liveQuestions">${currentHTML(qs)}</section>
