@@ -1106,17 +1106,20 @@ function currentHTML(qs) {
   const cur = currentQuestion(qs), sec = state.interview.plan.sections.find((s) => s.questions.includes(cur));
   const k = qs.indexOf(cur);
   const hit = (n) => cur.marks?.[n] ?? cur.review?.covered[n];
+  // 一张卡片从上到下：题目 → 回答要点 → 追问 → 判断信号 → AI 副驾 → 操作；每块同样的留白和字号。
   return `<article class="current" data-q="${cur.id}">
-    <div class="cur-head"><div class="cur-meta"><i class="dim ${DIM_COLORS[cur.dim] || ''}">${esc(cur.dim)}</i><span>${esc(sec?.title || '')} · 第 ${k + 1} / ${qs.length} 题</span>
-     <span class="cur-nav"><button class="btn icon" data-step="-1" title="上一题（←）" ${k ? '' : 'disabled'}>${icon('chevL')}</button><button class="btn icon" data-step="1" title="下一题（→）" ${k < qs.length - 1 ? '' : 'disabled'}>${icon('chevR')}</button></span></div>
-     <h3>${esc(cur.q)}</h3></div>
-    <div class="cur-body"><div><div class="mini-label">回答要点 <span class="muted">· 点一下标记答到了</span></div>
-      <ul class="points ${cur.review ? 'reviewed' : ''}">${cur.points.map((p, n) => `<li class="${hit(n) ? 'hit' : cur.review || cur.marks?.[n] === false ? 'miss' : ''}" data-mark="${n}">${esc(p)}</li>`).join('')}</ul>
-      ${cur.follow ? `<div class="follow-box"><b>追问：</b>${esc(cur.follow)}</div>` : ''}</div>
-     <div class="signals">${cur.good ? `<p class="good"><b>答得不错的表现</b>${esc(cur.good)}</p>` : ''}${cur.bad ? `<p class="bad"><b>需要警惕</b>${esc(cur.bad)}</p>` : ''}</div></div>
+    <header class="cur-head">
+     <div class="cur-meta"><span class="cur-no">第 ${k + 1} 题<em> / ${qs.length}</em></span><span class="cur-sec">${esc(sec?.title || '')}</span><i class="dim ${DIM_COLORS[cur.dim] || ''}">${esc(cur.dim)}</i>
+      <span class="cur-nav"><button class="nav-btn" data-step="-1" title="上一题（←）" ${k ? '' : 'disabled'}>${icon('chevL')}</button><button class="nav-btn" data-step="1" title="下一题（→）" ${k < qs.length - 1 ? '' : 'disabled'}>${icon('chevR')}</button></span></div>
+     <h3>${esc(cur.q)}</h3>
+    </header>
+    <section class="cur-block"><div class="mini-label">回答要点<span>点一下标记答到了</span></div>
+     <ul class="points ${cur.review ? 'reviewed' : ''}">${cur.points.map((p, n) => `<li class="${hit(n) ? 'hit' : cur.review || cur.marks?.[n] === false ? 'miss' : ''}" data-mark="${n}">${esc(p)}</li>`).join('')}</ul></section>
+    ${cur.follow ? `<section class="cur-block"><div class="mini-label">追问</div><p class="follow-line">${esc(cur.follow)}</p></section>` : ''}
+    ${cur.good || cur.bad ? `<section class="cur-block cur-signals">${cur.good ? `<p><b class="good">好的表现</b><span>${esc(cur.good)}</span></p>` : ''}${cur.bad ? `<p><b class="bad">需要警惕</b><span>${esc(cur.bad)}</span></p>` : ''}</section>` : ''}
     ${copilotHTML(cur)}
-    <div class="cur-foot"><div class="keys"><span><kbd>←</kbd><kbd>→</kbd>切换题目</span><span><kbd>空格</kbd>已问，下一题</span></div>
-     <span class="row" style="margin-left:auto">${cur.asked ? `<button class="btn" data-ask="${cur.id}">取消已问</button>` : ''}<button class="btn primary" data-ask-next="${cur.id}">${cur.asked ? `下一道没问的 ${icon('chevR')}` : `${icon('check')}已问，下一题`}</button></span></div>
+    <footer class="cur-foot"><div class="keys"><span><kbd>←</kbd><kbd>→</kbd>切换</span><span><kbd>空格</kbd>已问，下一题</span></div>
+     <span class="row" style="margin-left:auto">${cur.asked ? `<button class="btn" data-ask="${cur.id}">取消已问</button>` : ''}<button class="btn primary" data-ask-next="${cur.id}">${cur.asked ? `下一道没问的 ${icon('chevR')}` : `${icon('check')}已问，下一题`}</button></span></footer>
    </article>`;
 }
 function qListHTML(qs) {
@@ -1146,14 +1149,15 @@ function renderLive(body) {
       <label><input type="radio" name="recordMode" value="online" id="systemAudio" ${online ? 'checked' : ''}> 线上（戴耳机）</label></div>`
     : `<p class="hint" id="recHint"><b>${esc(i.name || '候选人')}</b> · ${rec === 'paused' ? '已暂停' : '录音中'} · ${esc(modeText)}</p>`}
     <div class="rec-buttons">
-     ${rec === 'idle' && (i.audioParts || (i.transcript || []).length || i.evaluation) ? '<button class="btn" id="restartInterview">重新开始面试</button>' : ''}
-     ${rec === 'idle' ? `<button class="btn rec big" id="recStart">● ${i.audioParts ? '继续面试（接着录）' : '开始面试'}</button>` : ''}
+     ${rec === 'idle' && !i.evaluation && !checked ? `<button class="chip warn-chip" data-tab-go="audio">${icon('alert')}音频还没调试</button>` : ''}
+     ${rec === 'idle' && i.evaluation ? `<button class="btn primary big" id="restartInterview">${icon('refresh')}重新开始</button>` : ''}
+     ${rec === 'idle' && !i.evaluation && (i.audioParts || (i.transcript || []).length) ? '<button class="btn big" id="restartInterview">重新开始</button>' : ''}
+     ${rec === 'idle' && !i.evaluation ? `<button class="btn rec big" id="recStart">● ${i.audioParts ? '继续面试' : '开始面试'}</button>` : ''}
      ${rec === 'recording' ? '<button class="btn big" id="recPause">暂停</button>' : ''}
      ${rec === 'paused' ? '<button class="btn big" id="recResume">继续</button>' : ''}
      ${rec !== 'idle' ? '<button class="btn dark big" id="recStop">结束面试</button>' : ''}
     </div>
    </div>
-   ${rec === 'idle' ? `<p class="rec-note">点「开始面试」后自动录音、边录边转写，界面会进入专注模式。录音前请告知候选人并征得同意。${s.asrEnabled ? '' : ' 自动转写已关闭，可在面试后导入转写文本。'}${checked ? ' <span class="ok">✓ 音频已调试</span>' : ' <b class="warn">音频还没调试好</b>'}<button class="link" data-tab-go="audio">${checked ? '重新调试' : '去调试音频'}</button></p>` : ''}
    <div class="board">
     <section class="col col-list"><div class="col-head">面试题<span class="chip" id="askedCount">已问 ${qs.filter((q) => q.asked).length} / ${qs.length}</span></div><div class="q-list" id="qList">${qListHTML(qs)}</div></section>
     <section class="col col-main" id="liveQuestions">${currentHTML(qs)}</section>
