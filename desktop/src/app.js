@@ -30,11 +30,11 @@ function toast(message, type = 'ok') {
 // groups: [{ title?, items: [{ value, label, icon?, extra?, tag?, selected?, disabled?, type?: 'tertiary'|'warning'|'danger' }] }]
 // 浮层挂在 body 上、按触发按钮定位（下方放不下就往上弹）；↑↓ 移动、回车选择、Esc / 点外面关闭。
 let ddClose = null, ddAnchor = null;
-function dropdown(anchor, groups, { onPick, align = 'left', minWidth = 0 } = {}) {
+function dropdown(anchor, groups, { onPick, align = 'left', minWidth = 0, compact = false } = {}) {
   ddClose?.();
   const hasCheck = groups.some((g) => g.items.some((x) => 'selected' in x));
   const menu = document.createElement('div');
-  menu.className = 'dd-menu';
+  menu.className = `dd-menu${compact ? ' compact' : ''}`;
   menu.setAttribute('role', 'menu');
   let n = 0;
   const vals = [];
@@ -1420,15 +1420,14 @@ function renderEval(body) {
     });
   }));
 }
-// 改分：点分数弹出下拉菜单，0~5 每 0.5 一档，右侧是对应的打分标准；标出 AI 原始给分，可一键恢复。
+// 改分：点分数弹出紧凑的下拉菜单，0~5 每 0.5 一档，右侧是对应的打分标准；AI 原始给分带「AI」标记，选它就是恢复。
 const SCORE_SHORT = ['没有体现', '明显不足', '偏弱', '合格', '良好', '优秀'];
 function openScorePop(anchor, d, onPick) {
   const ai = d.aiScore ?? d.score;
   const scores = Array.from({ length: 11 }, (_, n) => (10 - n) / 2);
   dropdown(anchor, [
-    { title: `调整「${d.name}」分数`, items: scores.map((v) => ({ value: v, label: `${v} 分`, selected: v === d.score, extra: v === ai ? 'AI 给分' : Number.isInteger(v) ? SCORE_SHORT[v] : '', tag: v === ai })) },
-    { items: [{ value: ai, label: `恢复 AI 给分（${ai} 分）`, icon: 'refresh', type: 'tertiary', disabled: d.score === ai }] },
-  ], { align: 'right', minWidth: 220, onPick: (v) => { if (v !== d.score) onPick(v); } });
+    { items: scores.map((v) => ({ value: v, label: String(v), selected: v === d.score, extra: v === ai ? 'AI' : Number.isInteger(v) ? SCORE_SHORT[v] : '', tag: v === ai })) },
+  ], { align: 'right', minWidth: 132, compact: true, onPick: (v) => { if (v !== d.score) onPick(v); } });
 }
 // 回答节奏（线上两路录音才有准确时间）：说话占比、候选人开口前停多久。只做参考，不进打分。
 function rhythmHTML(i) {

@@ -183,11 +183,11 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await page.waitForSelector('.dd-menu .dd-item.selected');
   await page.waitForTimeout(300);
   await shot('5-score-pop');
-  await page.click('.dd-menu .dd-item:has-text("3 分") >> nth=0');
+  await page.click('.dd-menu .dd-item:has(.dd-label:text-is("3"))');
   await page.waitForFunction(() => document.querySelector('.dim-card')?.textContent.includes('已手动调整'));
   check((await page.textContent('[data-score="0"]')).trim() === '3', 'manual score adjustment saved');
   await page.click('[data-score="0"]');
-  check((await page.textContent('.dd-menu')).includes('恢复 AI 给分'), 'score popover offers to restore the AI score');
+  check(await page.locator('.dd-menu .dd-extra.tag').count() === 1, 'score menu marks the AI score');
   await page.keyboard.press('Escape');
   await page.waitForSelector('.dd-menu', { state: 'detached' });
   await shot('5-eval');
