@@ -1107,7 +1107,9 @@ function currentHTML(qs) {
   const k = qs.indexOf(cur);
   const hit = (n) => cur.marks?.[n] ?? cur.review?.covered[n];
   // 一张卡片从上到下：题目 → 回答要点 → 追问 → 判断信号 → AI 副驾 → 操作；每块同样的留白和字号。
-  return `<article class="current" data-q="${cur.id}">
+  // 后面还有题时，卡片背后叠着露出一点边（参照 AnimatedTabs 的叠放卡片），切题时有动画（见 refreshLiveQuestions）。
+  const ghosts = Math.min(2, qs.length - 1 - k);
+  return `<div class="deck">${Array.from({ length: ghosts }, (_, g) => `<div class="deck-ghost g${g + 1}" aria-hidden="true"></div>`).join('')}<article class="current" data-q="${cur.id}">
     <header class="cur-head">
      <div class="cur-meta"><span class="cur-no">第 ${k + 1} 题<em> / ${qs.length}</em></span><span class="cur-sec">${esc(sec?.title || '')}</span><i class="dim ${DIM_COLORS[cur.dim] || ''}">${esc(cur.dim)}</i>
       <span class="cur-nav"><button class="nav-btn" data-step="-1" title="上一题（←）" ${k ? '' : 'disabled'}>${icon('chevL')}</button><button class="nav-btn" data-step="1" title="下一题（→）" ${k < qs.length - 1 ? '' : 'disabled'}>${icon('chevR')}</button></span></div>
@@ -1120,7 +1122,7 @@ function currentHTML(qs) {
     ${copilotHTML(cur)}
     <footer class="cur-foot"><div class="keys"><span><kbd>←</kbd><kbd>→</kbd>切换</span><span><kbd>空格</kbd>已问，下一题</span></div>
      <span class="row" style="margin-left:auto">${cur.asked ? `<button class="btn" data-ask="${cur.id}">取消已问</button>` : ''}<button class="btn primary" data-ask-next="${cur.id}">${cur.asked ? `下一道没问的 ${icon('chevR')}` : `${icon('check')}已问，下一题`}</button></span></footer>
-   </article>`;
+   </article></div>`;
 }
 function qListHTML(qs) {
   if (!qs.length) return '<p class="muted small" style="padding:16px 18px">还没有面试题</p>';
@@ -1163,6 +1165,7 @@ function renderLive(body) {
     <section class="col col-main" id="liveQuestions">${currentHTML(qs)}</section>
     <section class="col col-side" id="transcriptCol">${transcriptColHTML()}</section>
    </div>`;
+  state.shownQ = qs.length ? currentQuestion(qs).id : null;
   $('#notes').addEventListener('input', (e) => { i.notes = e.target.value; saveField({ notes: i.notes }); });
   body.querySelectorAll('[name=recordMode]').forEach((r) => r.addEventListener('change', async () => {
     state.settings = await call(api.settings.save({ recordMode: r.value }));
@@ -1199,11 +1202,31 @@ function renderLive(body) {
 function refreshLiveQuestions() {
   const box = $('#liveQuestions');
   if (!box) return;
-  const qs = allQuestions(state.interview.plan);
+  const qs = allQuestions(state.interview.plan), cur = currentQuestion(qs);
+  const old = box.querySelector('.current'), from = qs.findIndex((q) => q.id === state.shownQ), to = qs.indexOf(cur);
+  const leaving = old && from >= 0 && from !== to && !matchMedia('(prefers-reduced-motion: reduce)').matches ? old.cloneNode(true) : null;
   box.innerHTML = currentHTML(qs);
+  state.shownQ = cur?.id;
+  if (leaving) animateSwitch(box, leaving, to > from);
   $('#qList').innerHTML = qListHTML(qs);
   $('#askedCount').textContent = `已问 ${qs.filter((q) => q.asked).length} / ${qs.length}`;
   $('#qList .q-row.on')?.scrollIntoView({ block: 'nearest' });
+}
+// 切题动画：往后切，旧卡片往下滑走，新卡片从后面的叠层升到最前；往前切反过来。
+function animateSwitch(box, leaving, forward) {
+  const deck = box.querySelector('.deck'), card = deck?.querySelector('.current');
+  if (!card) return;
+  leaving.classList.add('leaving');
+  leaving.removeAttribute('data-q');
+  deck.appendChild(leaving);
+  // 新卡片不透明、压在旧卡片上面，旧卡片在后面往下滑走（或退回叠层），不会出现两张卡片文字重叠。
+  const ease = 'cubic-bezier(.2,.8,.2,1)';
+  leaving.animate(forward
+    ? [{ transform: 'none', opacity: 1 }, { transform: 'translateY(56px) scale(.98)', opacity: 0 }]
+    : [{ transform: 'none', opacity: 1 }, { transform: 'translateY(-10px) scale(.965)', opacity: 0 }], { duration: 280, easing: 'ease-in', fill: 'forwards' }).onfinish = () => leaving.remove();
+  card.animate(forward
+    ? [{ transform: 'translateY(-9px) scale(.965)', boxShadow: '0 0 0 transparent' }, { transform: 'none' }]
+    : [{ transform: 'translateY(36px)', opacity: 0 }, { opacity: 1, offset: 0.35 }, { transform: 'none', opacity: 1 }], { duration: 360, easing: ease });
 }
 // 只有一路麦克风或导入的文字时，转写里没有说话人，需要模型区分。
 const needsSpeakers = (i) => !i.dialogue?.length && (i.transcript || []).some((t) => t.text && !t.speaker);
