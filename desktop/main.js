@@ -99,17 +99,14 @@ handle('interviews:create', (fields) => {
 });
 handle('interviews:get', (id) => store.get(id));
 handle('interviews:save', (interview) => store.save(interview));
-handle('interviews:remove', async (id) => {
-  const { response } = await dialog.showMessageBox(win, { type: 'warning', buttons: ['删除', '取消'], defaultId: 1, cancelId: 1, message: '删除这场面试？', detail: '简历、录音、转写和评估都会被删除，无法恢复。' });
-  if (response !== 0) return false;
+// 删除、重新开始前的确认在界面里做（应用内确认框）。
+handle('interviews:remove', (id) => {
   store.remove(id);
   return true;
 });
 
 // 重新开始面试：清空录音、转写、评估和「已问」标记，简历和面试题保留。
-handle('interviews:restart', async (id) => {
-  const { response } = await dialog.showMessageBox(win, { type: 'warning', buttons: ['重新开始', '取消'], defaultId: 1, cancelId: 1, message: '重新开始这场面试？', detail: '这场面试的录音、转写、现场笔记和评估报告都会清空，无法恢复。简历和面试题会保留。' });
-  if (response !== 0) return null;
+handle('interviews:restart', (id) => {
   fs.rmSync(path.join(store.dirOf(id), 'audio'), { recursive: true, force: true });
   fs.rmSync(path.join(store.dirOf(id), '完整录音.wav'), { force: true });
   const i = store.get(id);

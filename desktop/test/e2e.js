@@ -189,8 +189,15 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   // 6. 重新开始面试：打开记录，清空录音、转写和报告，简历和题目保留。
   await page.click('.tr[data-open]');
   await page.click('.steps [data-tab=live]');
-  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 0 }); });
   await page.click('#restartInterview');
+  check(await page.isVisible('.modal [data-cancel]:focus'), 'confirm dialog focuses cancel for a destructive action');
+  await page.waitForTimeout(300);
+  await shot('7-confirm');
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('.modal-mask', { state: 'detached' });
+  check(fs.existsSync(path.join(ivDir, 'audio')), 'cancelling the dialog keeps the recording');
+  await page.click('#restartInterview');
+  await page.click('.modal [data-ok]');
   await page.waitForFunction(() => document.querySelector('#recStart')?.textContent.includes('开始面试') && !document.querySelector('#recStart').textContent.includes('继续'));
   const restarted = JSON.parse(fs.readFileSync(path.join(ivDir, 'interview.json'), 'utf8'));
   check(!restarted.transcript.length && !restarted.evaluation && restarted.plan && !fs.existsSync(path.join(ivDir, 'audio')) && (await page.textContent('#askedCount')).startsWith('已问 0'), 'restart clears recording, transcript and report but keeps the plan');
