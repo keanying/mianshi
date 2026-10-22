@@ -26,6 +26,94 @@ function toast(message, type = 'ok') {
   el.onmouseleave = arm;
   arm();
 }
+// ---------- 下拉菜单（参照 Semi Design Dropdown）----------
+// groups: [{ title?, items: [{ value, label, icon?, extra?, tag?, selected?, disabled?, type?: 'tertiary'|'warning'|'danger' }] }]
+// 浮层挂在 body 上、按触发按钮定位（下方放不下就往上弹）；↑↓ 移动、回车选择、Esc / 点外面关闭。
+let ddClose = null, ddAnchor = null;
+function dropdown(anchor, groups, { onPick, align = 'left', minWidth = 0 } = {}) {
+  ddClose?.();
+  const hasCheck = groups.some((g) => g.items.some((x) => 'selected' in x));
+  const menu = document.createElement('div');
+  menu.className = 'dd-menu';
+  menu.setAttribute('role', 'menu');
+  let n = 0;
+  const vals = [];
+  menu.innerHTML = groups.map((g, gi) => `${gi ? '<div class="dd-divider"></div>' : ''}${g.title ? `<div class="dd-title">${esc(g.title)}</div>` : ''}${g.items.map((x) => {
+    vals.push(x.value);
+    return `<button type="button" role="menuitem" class="dd-item ${x.selected ? 'selected' : ''} ${x.type || ''}" data-i="${n++}" ${x.disabled ? 'disabled' : ''}>
+      ${hasCheck ? `<span class="dd-check">${x.selected ? icon('check') : ''}</span>` : ''}${x.icon ? `<span class="dd-icon">${icon(x.icon)}</span>` : ''}<span class="dd-label">${esc(x.label)}</span>${x.extra ? `<span class="dd-extra ${x.tag ? 'tag' : ''}">${esc(x.extra)}</span>` : ''}</button>`;
+  }).join('')}`).join('');
+  document.body.appendChild(menu);
+  const r = anchor.getBoundingClientRect(), vh = window.innerHeight, vw = window.innerWidth;
+  menu.style.minWidth = `${Math.max(minWidth, r.width)}px`;
+  const below = vh - r.bottom - 12, above = r.top - 12, up = below < Math.min(menu.scrollHeight, 320) && above > below;
+  menu.style.maxHeight = `${Math.max(160, Math.min(520, up ? above : below))}px`;
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  menu.style.left = `${Math.max(8, Math.min(vw - w - 8, align === 'right' ? r.right - w : r.left))}px`;
+  menu.style.top = `${up ? r.top - h - 4 : r.bottom + 4}px`;
+  if (up) menu.classList.add('up');
+  anchor.setAttribute('aria-expanded', 'true');
+  const items = () => [...menu.querySelectorAll('.dd-item:not(:disabled)')];
+  const close = (refocus = true) => {
+    menu.remove(); ddClose = null; anchor.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('mousedown', outside, true); document.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('resize', closeQuiet); document.removeEventListener('scroll', onScroll, true);
+    if (refocus) anchor.focus();
+  };
+  const closeQuiet = () => close(false);
+  const onScroll = (e) => { if (!menu.contains(e.target)) close(false); };
+  const outside = (e) => { if (!menu.contains(e.target) && !anchor.contains(e.target)) close(false); };
+  const onKey = (e) => {
+    const xs = items(), k = xs.indexOf(document.activeElement);
+    if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); close(); }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); xs[(k + (e.key === 'ArrowDown' ? 1 : xs.length - 1)) % xs.length]?.focus(); }
+    if (e.key === ' ') e.stopPropagation();
+  };
+  menu.addEventListener('click', (e) => { const b = e.target.closest('.dd-item'); if (b && !b.disabled) { close(); onPick?.(vals[Number(b.dataset.i)]); } });
+  menu.addEventListener('mousemove', (e) => { const b = e.target.closest('.dd-item:not(:disabled)'); if (b && b !== document.activeElement) b.focus({ preventScroll: true }); });
+  document.addEventListener('mousedown', outside, true);
+  document.addEventListener('keydown', onKey, true);
+  window.addEventListener('resize', closeQuiet);
+  document.addEventListener('scroll', onScroll, true);
+  ddClose = closeQuiet;
+  ddAnchor = anchor;
+  const sel = menu.querySelector('.dd-item.selected:not(:disabled)') || items()[0];
+  sel?.focus({ preventScroll: true });
+  sel?.scrollIntoView({ block: 'nearest' });
+}
+// 把页面上的原生 <select> 换成上面的下拉菜单：原生的仍在（透明、不占位置），选中后照常触发 change，原有逻辑不用改。
+function enhanceSelect(sel) {
+  sel.dataset.dd = '1';
+  sel.classList.add('native-sel');
+  sel.tabIndex = -1;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'dd-trigger';
+  btn.setAttribute('aria-haspopup', 'menu');
+  if (sel.id) btn.id = `${sel.id}-dd`;
+  const sync = () => { btn.innerHTML = `<span>${esc(sel.selectedOptions[0]?.textContent || '')}</span>${icon('chevD')}`; btn.disabled = sel.disabled; };
+  sync();
+  sel.addEventListener('change', sync);
+  sel.after(btn);
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (btn.getAttribute('aria-expanded') === 'true') { ddClose?.(); return; }
+    const opt = (o) => ({ value: o.value, label: o.textContent, selected: o.selected, disabled: o.disabled });
+    const groups = [];
+    for (const c of sel.children) {
+      if (c.tagName === 'OPTGROUP') groups.push({ title: c.label, items: [...c.children].map(opt) });
+      else if (groups.length && !groups.at(-1).title) groups.at(-1).items.push(opt(c));
+      else groups.push({ items: [opt(c)] });
+    }
+    dropdown(btn, groups, { onPick: (v) => { if (sel.value !== v) { sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); } } });
+  });
+}
+// 页面重绘时：新出现的下拉框换成自定义样式；触发按钮被换掉了（例如音频调试页刷新）就把打开的菜单关掉。
+new MutationObserver(() => {
+  document.querySelectorAll('select:not([data-dd])').forEach(enhanceSelect);
+  if (ddClose && !ddAnchor?.isConnected) ddClose();
+}).observe(document.body, { childList: true, subtree: true });
+
 // 应用内确认框（代替系统弹窗）：返回 true / false。危险操作默认聚焦「取消」，Esc 取消，点遮罩取消。
 function ask({ title, body = '', ok = '确定', cancel = '取消', danger = false }) {
   return new Promise((resolve) => {
@@ -1299,38 +1387,15 @@ function renderEval(body) {
     });
   }));
 }
-// 改分弹层：0~5 每 0.5 一档，鼠标停在某一档上显示对应的打分标准；标出 AI 原始给分，可一键恢复。
-const SCORE_LABEL = ['完全没有体现', '明显不足', '偏弱，说不清或要反复引导', '合格，能说清主线', '良好，有自己的思考和实际证据', '优秀，讲得透、能举一反三'];
+// 改分：点分数弹出下拉菜单，0~5 每 0.5 一档，右侧是对应的打分标准；标出 AI 原始给分，可一键恢复。
 const SCORE_SHORT = ['没有体现', '明显不足', '偏弱', '合格', '良好', '优秀'];
-const scoreText = (v) => (Number.isInteger(v) ? SCORE_LABEL[v] : `介于「${SCORE_SHORT[Math.floor(v)]}」和「${SCORE_SHORT[Math.ceil(v)]}」之间`);
 function openScorePop(anchor, d, onPick) {
-  document.querySelector('.score-pop')?.remove();
   const ai = d.aiScore ?? d.score;
-  const pop = document.createElement('div');
-  pop.className = 'score-pop';
-  pop.setAttribute('role', 'listbox');
-  pop.innerHTML = `<div class="pop-title">调整「${esc(d.name)}」分数</div>
-   <div class="pop-grid">${Array.from({ length: 11 }, (_, n) => n / 2).map((v) => `<button role="option" data-set="${v}" class="${v === d.score ? 'on' : ''} ${v === ai ? 'ai' : ''} ${Number.isInteger(v) ? '' : 'half'}" aria-selected="${v === d.score}">${v}</button>`).join('')}</div>
-   <p class="pop-desc"><b>${d.score} 分</b>${esc(scoreText(d.score))}</p>
-   <div class="pop-foot"><span><i class="ai-dot"></i>AI 给分 ${ai}</span>${d.score !== ai ? `<button class="link" data-set="${ai}">恢复 AI 给分</button>` : ''}</div>`;
-  anchor.closest('.score-pick').appendChild(pop);
-  anchor.setAttribute('aria-expanded', 'true');
-  const desc = pop.querySelector('.pop-desc');
-  const show = (v) => { desc.innerHTML = `<b>${v} 分</b>${esc(scoreText(v))}`; };
-  const close = () => { pop.remove(); anchor.setAttribute('aria-expanded', 'false'); document.removeEventListener('click', outside, true); document.removeEventListener('keydown', onKey, true); anchor.focus(); };
-  const outside = (e) => { if (!pop.contains(e.target)) { e.stopPropagation(); close(); } };
-  const onKey = (e) => {
-    const bs = [...pop.querySelectorAll('.pop-grid button')], k = bs.indexOf(document.activeElement);
-    if (e.key === 'Escape') { e.preventDefault(); close(); }
-    if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && k >= 0) { e.preventDefault(); bs[Math.max(0, Math.min(10, k + (e.key === 'ArrowRight' ? 1 : -1)))].focus(); }
-  };
-  pop.addEventListener('mouseover', (e) => { const b = e.target.closest('.pop-grid [data-set]'); if (b) show(b.dataset.set); });
-  pop.addEventListener('focusin', (e) => { const b = e.target.closest('.pop-grid [data-set]'); if (b) show(b.dataset.set); });
-  pop.addEventListener('mouseleave', () => show(d.score));
-  pop.addEventListener('click', (e) => { const b = e.target.closest('[data-set]'); if (b) { close(); if (Number(b.dataset.set) !== d.score) onPick(Number(b.dataset.set)); } });
-  setTimeout(() => document.addEventListener('click', outside, true));
-  document.addEventListener('keydown', onKey, true);
-  pop.querySelector('.pop-grid .on').focus();
+  const scores = Array.from({ length: 11 }, (_, n) => (10 - n) / 2);
+  dropdown(anchor, [
+    { title: `调整「${d.name}」分数`, items: scores.map((v) => ({ value: v, label: `${v} 分`, selected: v === d.score, extra: v === ai ? 'AI 给分' : Number.isInteger(v) ? SCORE_SHORT[v] : '', tag: v === ai })) },
+    { items: [{ value: ai, label: `恢复 AI 给分（${ai} 分）`, icon: 'refresh', type: 'tertiary', disabled: d.score === ai }] },
+  ], { align: 'right', minWidth: 220, onPick: (v) => { if (v !== d.score) onPick(v); } });
 }
 // 回答节奏（线上两路录音才有准确时间）：说话占比、候选人开口前停多久。只做参考，不进打分。
 function rhythmHTML(i) {

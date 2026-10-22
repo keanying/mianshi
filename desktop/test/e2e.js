@@ -74,6 +74,12 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   check((await page.textContent('#sysHealth')).includes('正常') && await page.isHidden('.settings-foot'), 'system tab shows the self-check');
   await shot('1-settings-system');
   await page.click('[data-stab=llm]');
+  await page.click('select[name=provider] + .dd-trigger');
+  await page.waitForSelector('.dd-menu .dd-item.selected');
+  await page.waitForTimeout(200);
+  await shot('1-dropdown');
+  await page.keyboard.press('Escape');
+  check((await page.textContent('select[name=provider] + .dd-trigger')).includes('自定义'), 'custom dropdown mirrors the selected option');
   await page.click('#settingsForm button[type=submit]');
 
   // 2. 新建面试，上传 PDF 简历，生成面试题
@@ -173,16 +179,16 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   check((await page.locator('.dim-card').count()) === 5, 'five dimensions scored');
   check((await page.textContent('.verdict-panel')).includes('待定'), 'verdict shown');
   await page.click('[data-score="0"]');
-  await page.waitForSelector('.score-pop .pop-grid .on');
+  await page.waitForSelector('.dd-menu .dd-item.selected');
   await page.waitForTimeout(300);
   await shot('5-score-pop');
-  await page.click('.score-pop [data-set="3"]');
+  await page.click('.dd-menu .dd-item:has-text("3 分") >> nth=0');
   await page.waitForFunction(() => document.querySelector('.dim-card')?.textContent.includes('已手动调整'));
   check((await page.textContent('[data-score="0"]')).trim() === '3', 'manual score adjustment saved');
   await page.click('[data-score="0"]');
-  check((await page.textContent('.score-pop')).includes('恢复 AI 给分'), 'score popover offers to restore the AI score');
+  check((await page.textContent('.dd-menu')).includes('恢复 AI 给分'), 'score popover offers to restore the AI score');
   await page.keyboard.press('Escape');
-  await page.waitForSelector('.score-pop', { state: 'detached' });
+  await page.waitForSelector('.dd-menu', { state: 'detached' });
   await shot('5-eval');
   await page.click('#exportPdf');
   await page.waitForFunction(() => document.querySelector('#toast')?.textContent.includes('已导出'));
