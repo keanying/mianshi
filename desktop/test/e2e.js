@@ -158,6 +158,8 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await page.waitForFunction(() => { const [m, s] = document.querySelector('#recTime').textContent.split(':').map(Number); return m * 60 + s >= 13; }, null, { timeout: 30000 });
   const currentBefore = await page.textContent('#liveQuestions .current h3');
   await page.click('[data-ask-next]');
+  if (shots) { await page.waitForTimeout(150); await shot('4-switching'); }
+  check(await page.locator('#liveQuestions .deck').count() === 1, 'live: current question shown as a card deck');
   check((await page.textContent('#liveQuestions .current h3')) !== currentBefore && (await page.locator('.q-row.done').count()) >= 2, 'live: mark asked and move to the next unasked question');
   await shot('4-live');
   // 5. 结束面试：自动进入评估报告，先区分说话人，再流式生成评估。
