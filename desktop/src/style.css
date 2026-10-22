@@ -32,10 +32,21 @@ svg.i{width:16px;height:16px;flex-shrink:0;vertical-align:-3px}
 .nav button.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
 .nav svg.i{width:18px;height:18px}
 .side-foot{margin-top:auto;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:#fbfcfd;font-size:12.5px}
-.side-foot .k{display:flex;justify-content:space-between;align-items:center;color:var(--faint);font-size:12px}
-.side-foot .dot{width:8px;height:8px;border-radius:50%;background:#22c55e}.side-foot .dot.off{background:#f59e0b}
-.side-foot .m{margin:4px 0;color:var(--ink-2);font-size:13px;word-break:break-all}
-.side-foot .s{color:var(--good)}.side-foot .s.off{color:var(--bad)}
+.side-foot .k{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;color:var(--muted);font-size:12px;font-weight:600}
+.side-foot .k .link{font-size:12px;font-weight:400}
+.bad-count{margin-left:6px;padding:0 6px;border-radius:5px;background:var(--bad-soft);color:var(--bad);font-weight:600}
+.health{list-style:none;padding:0;display:flex;flex-direction:column;gap:10px}
+.health li{display:grid;grid-template-columns:10px 1fr auto;column-gap:8px;align-items:center;margin:0}
+.health .hdot{width:9px;height:9px;border-radius:50%;background:#cbd5e1}
+.health li.ok .hdot{background:#22c55e;box-shadow:0 0 0 3px #22c55e22}
+.health li.bad .hdot{background:#ef4444;box-shadow:0 0 0 3px #ef444422}
+.health li.checking .hdot{background:#f59e0b;animation:blink 1s infinite}
+.health b{font-size:13px;font-weight:600;color:var(--ink-2)}
+.health em{font-style:normal;font-size:12px;color:var(--faint)}
+.health li.ok em{color:var(--good)}.health li.bad em{color:var(--bad);font-weight:600}
+.health small{grid-column:2/4;font-size:11.5px;line-height:1.5;color:var(--faint);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-all}
+.health small:empty{display:none}
+.health li.bad small{color:var(--bad)}
 
 /* ---------- 按钮 / 表单 ---------- */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:38px;padding:0 16px;border:1px solid var(--line);border-radius:10px;background:var(--surface);font-size:14px;color:var(--ink-2);white-space:nowrap}
@@ -101,11 +112,18 @@ textarea:focus,input:focus,select:focus{outline:none;border-color:var(--accent);
 .lvl.good{background:var(--good-soft);color:var(--good)}.lvl.mid{background:#fef3c7;color:#92400e}.lvl.weak{background:var(--bad-soft);color:var(--bad)}
 
 /* ---------- 面试记录 ---------- */
-.home-tools{display:flex;gap:12px;align-items:center}
-.search{position:relative;width:260px}
-.search svg.i{z-index:1;position:absolute;left:12px;top:13px;color:var(--faint)}
-.search input{padding-left:36px;height:42px;background:var(--surface)}
-.home-tools select{width:130px;height:42px;background:var(--surface)}
+.home-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.search{position:relative;display:block;flex:0 1 340px}
+.search svg.i{position:absolute;left:13px;top:50%;transform:translateY(-50%);z-index:1;color:var(--faint);pointer-events:none}
+.search input:not([type=checkbox]):not([type=radio]){height:40px;padding:0 34px 0 38px;background:var(--surface);border-radius:10px}
+.search .clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:24px;height:24px;border-radius:50%;color:var(--faint);font-size:16px;line-height:1}
+.search .clear:hover{background:var(--line-2);color:var(--ink-2)}
+.filters{display:inline-flex;gap:2px;padding:4px;background:#eaedf1;border-radius:10px}
+.filters button{display:flex;align-items:center;gap:6px;height:32px;padding:0 14px;border-radius:8px;font-size:13.5px;color:var(--muted)}
+.filters button:hover{color:var(--ink-2)}
+.filters button i{font-style:normal;min-width:20px;padding:0 6px;border-radius:9px;background:#0f172a0f;font-size:11.5px;line-height:18px;text-align:center}
+.filters button.on{background:var(--surface);color:var(--accent);font-weight:600;box-shadow:0 1px 3px #0f172a14}
+.filters button.on i{background:var(--accent-soft);color:var(--accent)}
 .table{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
 .tr{display:grid;grid-template-columns:1.3fr 1.4fr 1.2fr .9fr 1.1fr 56px;gap:12px;align-items:center;padding:14px 24px;border-bottom:1px solid var(--line-2);cursor:pointer}
 .tr:not(.th):hover{background:#fafbfc}

@@ -50,6 +50,9 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   // 1. 首次启动进入设置页
   await page.waitForSelector('#settingsForm');
   check(true, 'first launch opens settings');
+  await page.waitForSelector('#sideFoot .health li.bad');
+  check((await page.textContent('#sideFoot')).includes('未配置 API Key'), 'self-check shows the missing API key in red');
+  await shot('0-first-run');
   await page.selectOption('select[name=provider]', 'custom');
   await page.fill('input[name=baseURL]', url);
   await page.fill('input[name=model]', 'mock-model');
@@ -63,6 +66,8 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await page.click('#testASR');
   await page.waitForSelector('#testASRResult.ok', { timeout: 15000 });
   check(true, 'connection tests pass');
+  await page.waitForFunction(() => document.querySelectorAll('#sideFoot .health li.ok').length === 3);
+  check(true, 'self-check turns green once configured');
   await shot('1-settings');
   await page.click('#settingsForm button[type=submit]');
 

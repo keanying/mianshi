@@ -122,12 +122,25 @@ async function renderHome() {
   state.home = state.home || { q: '', status: '', page: 1 };
   const s = state.settings, h = state.home;
   const setupHint = !s?.apiKeyHint ? `<div class="notice">还没有配置模型。先到 <button class="link" data-go-settings>设置</button> 里选择 GLM 或 DeepSeek 并填写 API Key。</div>` : '';
-  main.innerHTML = `<div class="page-scroll"><header class="page-head"><div><h1>面试记录</h1><p>${state.homeList.length} 场面试 · 添加候选人 → 调试音频 → 生成面试题 → 开始面试 → 评估报告</p></div>
-   <div class="home-tools"><label class="search">${icon('search')}<input id="homeSearch" placeholder="搜索候选人…" value="${esc(h.q)}"></label>
-    <select id="homeFilter" aria-label="按状态筛选"><option value="">全部状态</option>${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${h.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div></header>
-   ${setupHint}<div id="homeTable">${homeTableHTML()}</div></div>`;
-  $('#homeSearch').addEventListener('input', (e) => { h.q = e.target.value; h.page = 1; $('#homeTable').innerHTML = homeTableHTML(); });
-  $('#homeFilter').addEventListener('change', (e) => { h.status = e.target.value; h.page = 1; $('#homeTable').innerHTML = homeTableHTML(); });
+  main.innerHTML = `<div class="page-scroll"><header class="page-head"><h1>面试记录</h1></header>
+   ${setupHint}<div class="home-bar"><label class="search">${icon('search')}<input id="homeSearch" placeholder="搜索姓名或岗位" value="${esc(h.q)}">${h.q ? '<button class="clear" id="clearSearch" title="清空">×</button>' : ''}</label>
+    <div class="filters" id="homeFilters" role="tablist" aria-label="按状态筛选">${homeFiltersHTML()}</div></div>
+   <div id="homeTable">${homeTableHTML()}</div></div>`;
+  const refresh = () => { $('#homeFilters').innerHTML = homeFiltersHTML(); $('#homeTable').innerHTML = homeTableHTML(); };
+  $('#homeSearch').addEventListener('input', (e) => {
+    h.q = e.target.value; h.page = 1; refresh();
+    const label = $('.search'), btn = $('#clearSearch');
+    if (h.q && !btn) label.insertAdjacentHTML('beforeend', '<button class="clear" id="clearSearch" title="清空">×</button>');
+    if (!h.q) btn?.remove();
+  });
+  $('.search').addEventListener('click', (e) => { if (e.target.id === 'clearSearch') { h.q = ''; h.page = 1; $('#homeSearch').value = ''; e.target.remove(); refresh(); $('#homeSearch').focus(); } });
+  $('#homeFilters').addEventListener('click', (e) => { const b = e.target.closest('[data-status]'); if (b) { h.status = b.dataset.status; h.page = 1; refresh(); } });
+}
+// 状态筛选：每个状态后面带数量（数量按当前搜索词算）
+function homeFiltersHTML() {
+  const h = state.home, q = h.q.trim().toLowerCase();
+  const rows = (state.homeList || []).filter((i) => !q || `${i.name} ${i.position}`.toLowerCase().includes(q));
+  return [['', '全部'], ...Object.entries(STATUS)].map(([k, v]) => `<button role="tab" data-status="${k}" class="${h.status === k ? 'on' : ''}" aria-selected="${h.status === k}">${v}<i>${rows.filter((i) => !k || i.status === k).length}</i></button>`).join('');
 }
 function homeTableHTML() {
   const h = state.home, all = state.homeList || [], PAGE = 10;
@@ -201,19 +214,66 @@ async function renderSettings() {
     position: form.position.value.trim(), jd: form.jd.value.trim(), questionCount: Number(form.questionCount.value),
   });
   const saveAll = async () => { state.settings = await call(api.settings.save(collect())); renderSideFoot(); };
-  form.addEventListener('submit', async (e) => { e.preventDefault(); try { await saveAll(); toast('设置已保存'); renderSettings(); } catch (err) { ignoreHandled(err); } });
-  const test = (btn, out, fn) => $(btn).addEventListener('click', async () => {
+  form.addEventListener('submit', async (e) => { e.preventDefault(); try { await saveAll(); toast('设置已保存'); renderSettings(); runHealth(); } catch (err) { ignoreHandled(err); } });
+  // 测试结果同时更新侧栏的系统自检
+  const test = (btn, out, fn, key) => $(btn).addEventListener('click', async () => {
     $(out).textContent = '测试中…';
-    try { await saveAll(); $(out).textContent = `✓ ${await call(fn(), { quiet: true })}`; $(out).className = 'ok'; } catch (err) { $(out).textContent = `✗ ${err.message}`; $(out).className = 'bad'; }
+    try {
+      await saveAll();
+      $(out).textContent = `✓ ${await call(fn(), { quiet: true })}`; $(out).className = 'ok';
+      setHealth(key, 'ok');
+    } catch (err) { $(out).textContent = `✗ ${err.message}`; $(out).className = 'bad'; setHealth(key, 'bad', err.message); }
   });
-  test('#testLLM', '#testLLMResult', api.settings.testLLM);
-  test('#testASR', '#testASRResult', api.settings.testASR);
+  test('#testLLM', '#testLLMResult', api.settings.testLLM, 'llm');
+  test('#testASR', '#testASRResult', api.settings.testASR, 'asr');
   $('#openData').addEventListener('click', () => api.openDataDir());
 }
+// ---------- 系统自检（侧栏底部）----------
+// 大模型、语音转写各发一次最小的真实请求，麦克风看系统里有没有输入设备。绿色正常，红色不正常（鼠标停在上面看原因）。
+const health = { llm: { status: 'wait' }, asr: { status: 'wait' }, mic: { status: 'wait' } };
+let healthRun = 0;
+function setHealth(key, status, msg = '') {
+  health[key] = { status, msg };
+  renderSideFoot();
+}
+async function runHealth() {
+  const s = state.settings, run = ++healthRun;
+  const check = async (key, fn) => {
+    setHealth(key, 'checking');
+    try { const msg = await fn(); if (run === healthRun) setHealth(key, msg === 'off' ? 'off' : 'ok'); } catch (err) { if (run === healthRun) setHealth(key, 'bad', err.message); }
+  };
+  await Promise.all([
+    check('llm', async () => { if (!s.apiKeyHint) throw new Error('未配置 API Key'); await call(api.settings.testLLM(), { quiet: true }); }),
+    check('asr', async () => {
+      if (!s.asrEnabled) return 'off';
+      if (!(s.asrUseChatKey ? s.apiKeyHint : s.asrKeyHint)) throw new Error('未配置智谱 API Key');
+      await call(api.settings.testASR(), { quiet: true });
+    }),
+    checkMic(),
+  ]);
+}
+async function checkMic() {
+  const inputs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+  setHealth('mic', inputs.length ? 'ok' : 'bad', inputs.length ? '' : '没有找到麦克风：请插上麦克风或耳机');
+}
+navigator.mediaDevices?.addEventListener('devicechange', () => { checkMic().catch(() => {}); });
 function renderSideFoot() {
   const s = state.settings, p = state.info?.providers?.[s?.provider];
-  $('#sideFoot').innerHTML = s ? `<div class="k">模型配置<i class="dot ${s.apiKeyHint ? '' : 'off'}"></i></div><div class="m">${esc(p?.label || '')} · ${esc(s.model)}</div><div class="s ${s.apiKeyHint ? '' : 'off'}">${s.apiKeyHint ? '✓ API Key 已配置' : '未配置 API Key'}</div>` : '';
+  if (!s) { $('#sideFoot').innerHTML = ''; return; }
+  const TEXT = { wait: '等待检测', checking: '检测中…', ok: '正常', off: '已关闭' };
+  const rows = [
+    ['llm', '大模型', `${p?.label || ''} · ${s.model}`],
+    ['asr', '语音转写', s.asrModel],
+    ['mic', '麦克风', ''],
+  ];
+  const bad = rows.filter(([k]) => health[k].status === 'bad').length;
+  $('#sideFoot').innerHTML = `<div class="k"><span>系统自检${bad ? `<b class="bad-count">${bad} 项异常</b>` : ''}</span><button class="link" id="recheckHealth" ${Object.values(health).some((h) => h.status === 'checking') ? 'disabled' : ''}>重新检测</button></div>
+   <ul class="health">${rows.map(([k, label, detail]) => {
+     const h = health[k];
+     return `<li class="${h.status}" title="${esc(h.msg || TEXT[h.status])}"><i class="hdot"></i><b>${label}</b><em>${esc(h.status === 'bad' ? '异常' : TEXT[h.status])}</em><small>${esc(h.status === 'bad' ? h.msg : detail)}</small></li>`;
+   }).join('')}</ul>`;
 }
+$('#sideFoot').addEventListener('click', (e) => { if (e.target.closest('#recheckHealth')) runHealth(); });
 
 // ---------- 单场面试 ----------
 async function openInterview(id, tab) {
@@ -1226,6 +1286,7 @@ window.addEventListener('beforeunload', (e) => { flushSave(); if (state.recState
     state.info = await call(api.info());
     state.settings = await call(api.settings.get());
     renderSideFoot();
+    runHealth();
     await go(state.settings.apiKeyHint ? 'home' : 'settings');
     if (!state.settings.apiKeyHint) toast('先配置模型和 API Key，就可以开始使用了。');
   } catch (err) { ignoreHandled(err); }
