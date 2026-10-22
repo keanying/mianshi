@@ -384,8 +384,23 @@ body.focus .side,body.focus .iv-head{display:none}
 .dim-card{display:flex;flex-direction:column;padding:20px 20px 18px}
 .dim-top{display:flex;align-items:flex-start;justify-content:space-between}
 .score-pick{text-align:right}
-.score-pick select{width:auto;height:auto;padding:0 2px;border:0;background:transparent;font-size:20px;font-weight:700;text-align:right;cursor:pointer}
-.score-pick select:focus{box-shadow:none}
+.score-pick{position:relative}
+.score-btn{display:inline-flex;align-items:center;gap:2px;padding:2px 6px 2px 10px;margin-right:-6px;border-radius:8px;font-size:20px;font-weight:700;line-height:1.3;color:var(--ink)}
+.score-btn svg.i{width:14px;height:14px;color:var(--faint)}
+.score-btn:hover,.score-btn[aria-expanded=true]{background:var(--line-2)}.score-btn:hover svg.i{color:var(--accent)}
+.score-pop{position:absolute;top:calc(100% + 6px);right:-6px;z-index:20;width:316px;padding:14px 14px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);box-shadow:0 16px 40px #0f172a26;text-align:left;animation:popIn .14s ease-out}
+.pop-title{font-size:12.5px;font-weight:600;color:var(--muted);margin-bottom:10px}
+.pop-grid{display:grid;grid-template-columns:repeat(11,1fr);gap:3px}
+.pop-grid button{position:relative;height:32px;border-radius:7px;font-size:13px;font-weight:600;color:var(--ink-2);background:var(--line-2)}
+.pop-grid button.half{font-size:11.5px;font-weight:500;color:var(--muted);background:#f7f8fa}
+.pop-grid button:hover,.pop-grid button:focus-visible{background:var(--accent-soft);color:var(--accent);outline:none}
+.pop-grid button.on{background:var(--accent);color:#fff}
+.pop-grid button.ai::after{content:"";position:absolute;left:50%;bottom:3px;width:4px;height:4px;margin-left:-2px;border-radius:50%;background:#f59e0b}
+.pop-desc{min-height:40px;margin-top:10px;padding:8px 10px;border-radius:8px;background:#f8fafc;font-size:12.5px;line-height:1.6;color:var(--ink-2)}
+.pop-desc b{margin-right:8px;color:var(--accent)}
+.pop-foot{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px;color:var(--faint)}
+.pop-foot .link{font-size:12px}
+.ai-dot{display:inline-block;width:6px;height:6px;margin-right:6px;border-radius:50%;background:#f59e0b;vertical-align:1px}
 .score-pick b{font-size:20px;font-weight:700}
 .score-pick small{display:block;font-size:11px;color:var(--faint)}
 .score-bar{height:6px;margin:14px 0;border-radius:3px;background:var(--line-2);overflow:hidden}

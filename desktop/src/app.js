@@ -406,7 +406,7 @@ function evalStreamHTML(e) {
   const o = e.overall || {};
   return `${o.verdict || o.summary ? `<div class="panel verdict-panel"><div><div class="verdict-line"><i class="verdict-big ${VERDICT_CLASS[o.verdict] || ''}">${esc(o.verdict || '…')}</i>${o.level ? `<span class="level-chip">${esc(o.level)}</span>` : ''}</div>${summaryList(o.summary)}</div></div>` : ''}
    <div class="dims">${dims.map((d, k) => `<div class="panel dim-card ${k === dims.length - 1 && !o.verdict ? 'typing' : ''}">
-    <div class="dim-top"><i class="dim ${DIM_COLORS[d.name] || ''}">${esc(d.name)}</i><span class="score-pick"><b>${typeof d.score === 'number' ? d.score : '…'}</b><small>/ 5</small></span></div>
+    <div class="dim-top"><i class="dim ${DIM_COLORS[d.name] || ''}">${esc(d.name)}</i><span class="score-pick"><b>${typeof d.score === 'number' ? d.score : '…'}</b></span></div>
     <div class="score-bar ${DIM_COLORS[d.name] || ''}"><i style="width:${typeof d.score === 'number' ? d.score / 5 * 100 : 0}%"></i></div>
     <p>${esc(d.reason || '')}</p>${list(d.evidence).length ? `<ul class="evidence">${list(d.evidence).map((x) => `<li>${esc(unquote(x))}</li>`).join('')}</ul>` : ''}</div>`).join('')}</div>
    ${dims.length ? '' : '<p class="muted stream-wait">正在阅读转写，马上开始给分…</p>'}`;
@@ -1248,7 +1248,7 @@ function renderEval(body) {
       ${summaryList(e.overall.summary)}</div>${radarSVG(e)}</div>
      <div class="dims">${e.dimensions.map((d, k) => `<div class="panel dim-card">
       <div class="dim-top"><i class="dim ${DIM_COLORS[d.name] || ''}">${esc(d.name)}</i>
-       <span class="score-pick"><select data-score="${k}" aria-label="${esc(d.name)}分数">${Array.from({ length: 11 }, (_, n) => n / 2).map((v) => `<option value="${v}" ${v === d.score ? 'selected' : ''}>${v}</option>`).join('')}</select><small>/ 5 · 可改</small></span></div>
+       <span class="score-pick"><button class="score-btn" data-score="${k}" aria-haspopup="listbox" title="点击调整分数">${d.score}${icon('chevD')}</button></span></div>
       <div class="score-bar ${DIM_COLORS[d.name] || ''}"><i style="width:${d.score / 5 * 100}%"></i></div>
       <p>${esc(d.reason)}</p>${d.evidence.length ? `<ul class="evidence">${d.evidence.map((x) => `<li>${esc(unquote(x))}</li>`).join('')}</ul>` : ''}
       ${!d.enough || d.manual ? `<div class="proof-row">${d.enough ? '' : '<span class="proof weak">证据不足</span>'}${d.manual ? '<span class="manual">已手动调整</span>' : ''}</div>` : ''}</div>`).join('')}${rhythmHTML(i)}</div>
@@ -1262,13 +1262,50 @@ function renderEval(body) {
   $('#genEval')?.addEventListener('click', () => generateEval());
   $('#exportPdf')?.addEventListener('click', () => exportReport('pdf'));
   $('#exportMd')?.addEventListener('click', () => exportReport('md'));
-  body.querySelectorAll('[data-score]').forEach((sel) => sel.addEventListener('change', async () => {
-    const d = e.dimensions[Number(sel.dataset.score)];
-    d.score = Number(sel.value);
-    d.manual = true;
-    state.interview = await call(api.interviews.save({ id: state.id, evaluation: e }));
-    renderEval(body);
+  body.querySelectorAll('[data-score]').forEach((btn) => btn.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    openScorePop(btn, e.dimensions[Number(btn.dataset.score)], async (score) => {
+      const d = e.dimensions[Number(btn.dataset.score)];
+      d.aiScore ??= d.score; // 记下 AI 原始给分，方便恢复
+      d.score = score;
+      d.manual = score !== d.aiScore;
+      state.interview = await call(api.interviews.save({ id: state.id, evaluation: e }));
+      renderEval(body);
+    });
   }));
+}
+// 改分弹层：0~5 每 0.5 一档，鼠标停在某一档上显示对应的打分标准；标出 AI 原始给分，可一键恢复。
+const SCORE_LABEL = ['完全没有体现', '明显不足', '偏弱，说不清或要反复引导', '合格，能说清主线', '良好，有自己的思考和实际证据', '优秀，讲得透、能举一反三'];
+const SCORE_SHORT = ['没有体现', '明显不足', '偏弱', '合格', '良好', '优秀'];
+const scoreText = (v) => (Number.isInteger(v) ? SCORE_LABEL[v] : `介于「${SCORE_SHORT[Math.floor(v)]}」和「${SCORE_SHORT[Math.ceil(v)]}」之间`);
+function openScorePop(anchor, d, onPick) {
+  document.querySelector('.score-pop')?.remove();
+  const ai = d.aiScore ?? d.score;
+  const pop = document.createElement('div');
+  pop.className = 'score-pop';
+  pop.setAttribute('role', 'listbox');
+  pop.innerHTML = `<div class="pop-title">调整「${esc(d.name)}」分数</div>
+   <div class="pop-grid">${Array.from({ length: 11 }, (_, n) => n / 2).map((v) => `<button role="option" data-set="${v}" class="${v === d.score ? 'on' : ''} ${v === ai ? 'ai' : ''} ${Number.isInteger(v) ? '' : 'half'}" aria-selected="${v === d.score}">${v}</button>`).join('')}</div>
+   <p class="pop-desc"><b>${d.score} 分</b>${esc(scoreText(d.score))}</p>
+   <div class="pop-foot"><span><i class="ai-dot"></i>AI 给分 ${ai}</span>${d.score !== ai ? `<button class="link" data-set="${ai}">恢复 AI 给分</button>` : ''}</div>`;
+  anchor.closest('.score-pick').appendChild(pop);
+  anchor.setAttribute('aria-expanded', 'true');
+  const desc = pop.querySelector('.pop-desc');
+  const show = (v) => { desc.innerHTML = `<b>${v} 分</b>${esc(scoreText(v))}`; };
+  const close = () => { pop.remove(); anchor.setAttribute('aria-expanded', 'false'); document.removeEventListener('click', outside, true); document.removeEventListener('keydown', onKey, true); anchor.focus(); };
+  const outside = (e) => { if (!pop.contains(e.target)) { e.stopPropagation(); close(); } };
+  const onKey = (e) => {
+    const bs = [...pop.querySelectorAll('.pop-grid button')], k = bs.indexOf(document.activeElement);
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && k >= 0) { e.preventDefault(); bs[Math.max(0, Math.min(10, k + (e.key === 'ArrowRight' ? 1 : -1)))].focus(); }
+  };
+  pop.addEventListener('mouseover', (e) => { const b = e.target.closest('.pop-grid [data-set]'); if (b) show(b.dataset.set); });
+  pop.addEventListener('focusin', (e) => { const b = e.target.closest('.pop-grid [data-set]'); if (b) show(b.dataset.set); });
+  pop.addEventListener('mouseleave', () => show(d.score));
+  pop.addEventListener('click', (e) => { const b = e.target.closest('[data-set]'); if (b) { close(); if (Number(b.dataset.set) !== d.score) onPick(Number(b.dataset.set)); } });
+  setTimeout(() => document.addEventListener('click', outside, true));
+  document.addEventListener('keydown', onKey, true);
+  pop.querySelector('.pop-grid .on').focus();
 }
 // 回答节奏（线上两路录音才有准确时间）：说话占比、候选人开口前停多久。只做参考，不进打分。
 function rhythmHTML(i) {

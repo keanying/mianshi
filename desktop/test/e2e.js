@@ -152,7 +152,7 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await page.click('#recStop');
   await page.waitForSelector('#stream-eval .dim-card', { timeout: 30000 });
   check(true, 'ending the interview generates the report automatically, streaming');
-  await page.waitForSelector('.dim-card select', { timeout: 30000 });
+  await page.waitForSelector('.dim-card .score-btn', { timeout: 30000 });
   const dirs = fs.readdirSync(path.join(dataDir, 'interviews'));
   const ivDir = path.join(dataDir, 'interviews', dirs[0]);
   check(fs.existsSync(path.join(ivDir, '完整录音.wav')), 'full recording saved');
@@ -167,9 +167,17 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   // 评估：改分、导出
   check((await page.locator('.dim-card').count()) === 5, 'five dimensions scored');
   check((await page.textContent('.verdict-panel')).includes('待定'), 'verdict shown');
-  await page.selectOption('[data-score="0"]', '3');
+  await page.click('[data-score="0"]');
+  await page.waitForSelector('.score-pop .pop-grid .on');
+  await page.waitForTimeout(300);
+  await shot('5-score-pop');
+  await page.click('.score-pop [data-set="3"]');
   await page.waitForFunction(() => document.querySelector('.dim-card')?.textContent.includes('已手动调整'));
-  check(true, 'manual score adjustment saved');
+  check((await page.textContent('[data-score="0"]')).trim() === '3', 'manual score adjustment saved');
+  await page.click('[data-score="0"]');
+  check((await page.textContent('.score-pop')).includes('恢复 AI 给分'), 'score popover offers to restore the AI score');
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('.score-pop', { state: 'detached' });
   await shot('5-eval');
   await page.click('#exportPdf');
   await page.waitForFunction(() => document.querySelector('#toast')?.textContent.includes('已导出'));
