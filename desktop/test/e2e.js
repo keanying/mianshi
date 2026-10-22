@@ -57,18 +57,30 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await page.fill('input[name=baseURL]', url);
   await page.fill('input[name=model]', 'mock-model');
   await page.fill('input[name=apiKey]', 'test-key');
+  await page.click('#testLLM');
+  check(await page.locator('#testLLM .ripple').count() === 1, 'buttons ripple when pressed');
+  await page.waitForSelector('#testLLMResult.ok', { timeout: 15000 });
+  await page.click('[data-stab=asr]');
   await page.uncheck('input[name=asrUseChatKey]');
   await page.fill('input[name=asrKey]', 'test-key');
   await page.fill('input[name=asrBaseURL]', url);
   await page.fill('input[name=chunkSeconds]', '10');
-  await page.click('#testLLM');
-  await page.waitForSelector('#testLLMResult.ok', { timeout: 15000 });
   await page.click('#testASR');
   await page.waitForSelector('#testASRResult.ok', { timeout: 15000 });
   check(true, 'connection tests pass');
   await page.waitForFunction(() => document.querySelectorAll('#sideFoot .health li.ok').length === 3);
   check(true, 'self-check turns green once configured');
   await shot('1-settings');
+  await page.click('[data-stab=system]');
+  check((await page.textContent('#sysHealth')).includes('正常') && await page.isHidden('.settings-foot'), 'system tab shows the self-check');
+  await shot('1-settings-system');
+  await page.click('[data-stab=llm]');
+  await page.click('select[name=provider] + .dd-trigger');
+  await page.waitForSelector('.dd-menu .dd-item.selected');
+  await page.waitForTimeout(200);
+  await shot('1-dropdown');
+  await page.keyboard.press('Escape');
+  check((await page.textContent('select[name=provider] + .dd-trigger')).includes('自定义'), 'custom dropdown mirrors the selected option');
   await page.click('#settingsForm button[type=submit]');
 
   // 2. 新建面试，上传 PDF 简历，生成面试题
@@ -152,7 +164,7 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await page.click('#recStop');
   await page.waitForSelector('#stream-eval .dim-card', { timeout: 30000 });
   check(true, 'ending the interview generates the report automatically, streaming');
-  await page.waitForSelector('.dim-card select', { timeout: 30000 });
+  await page.waitForSelector('.dim-card .score-btn', { timeout: 30000 });
   const dirs = fs.readdirSync(path.join(dataDir, 'interviews'));
   const ivDir = path.join(dataDir, 'interviews', dirs[0]);
   check(fs.existsSync(path.join(ivDir, '完整录音.wav')), 'full recording saved');
@@ -167,9 +179,17 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   // 评估：改分、导出
   check((await page.locator('.dim-card').count()) === 5, 'five dimensions scored');
   check((await page.textContent('.verdict-panel')).includes('待定'), 'verdict shown');
-  await page.selectOption('[data-score="0"]', '3');
+  await page.click('[data-score="0"]');
+  await page.waitForSelector('.dd-menu .dd-item.selected');
+  await page.waitForTimeout(300);
+  await shot('5-score-pop');
+  await page.click('.dd-menu .dd-item:has-text("3 分") >> nth=0');
   await page.waitForFunction(() => document.querySelector('.dim-card')?.textContent.includes('已手动调整'));
-  check(true, 'manual score adjustment saved');
+  check((await page.textContent('[data-score="0"]')).trim() === '3', 'manual score adjustment saved');
+  await page.click('[data-score="0"]');
+  check((await page.textContent('.dd-menu')).includes('恢复 AI 给分'), 'score popover offers to restore the AI score');
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('.dd-menu', { state: 'detached' });
   await shot('5-eval');
   await page.click('#exportPdf');
   await page.waitForFunction(() => document.querySelector('#toast')?.textContent.includes('已导出'));
