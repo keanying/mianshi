@@ -10,14 +10,49 @@ const DIM_COLORS = { 专业度: 'd1', 自驱力: 'd2', 性格特质: 'd3', 逻�
 const VERDICT_CLASS = { 强烈推荐: 'v1', 推荐: 'v2', 待定: 'v3', 不推荐: 'v4' };
 
 // ---------- 工具 ----------
+// 通知：ok 完成（默认）/ info 提示 / warn 提醒 / error 出错。出错的停留久一点，鼠标停在上面时不消失。
 let toastTimer;
-function toast(message, type = 'info') {
+const TOAST_ICON = { ok: '✓', info: 'i', warn: '!', error: '✕' };
+function toast(message, type = 'ok') {
   const el = $('#toast');
-  el.textContent = message;
   el.className = `toast ${type}`;
+  el.innerHTML = `<i class="t-ico">${TOAST_ICON[type] || 'i'}</i><p>${esc(message)}</p><button class="t-close" title="关闭">×</button>`;
   el.hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, type === 'error' ? 6000 : 3000);
+  el.classList.remove('in'); void el.offsetWidth; el.classList.add('in');
+  const hide = () => { el.hidden = true; };
+  el.querySelector('.t-close').onclick = hide;
+  const arm = () => { clearTimeout(toastTimer); toastTimer = setTimeout(hide, type === 'error' || type === 'warn' ? 6000 : 3000); };
+  el.onmouseenter = () => clearTimeout(toastTimer);
+  el.onmouseleave = arm;
+  arm();
+}
+// 应用内确认框（代替系统弹窗）：返回 true / false。危险操作默认聚焦「取消」，Esc 取消，点遮罩取消。
+function ask({ title, body = '', ok = '确定', cancel = '取消', danger = false }) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'modal-mask';
+    wrap.innerHTML = `<div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-ico ${danger ? 'danger' : ''}">${danger ? icon('alert') : icon('info')}</div>
+      <div class="modal-text"><h3 id="modalTitle">${esc(title)}</h3>${body ? `<p>${esc(body)}</p>` : ''}</div>
+      <div class="modal-actions"><button class="btn" data-cancel>${esc(cancel)}</button><button class="btn ${danger ? 'danger' : 'primary'}" data-ok>${esc(ok)}</button></div></div>`;
+    const prevFocus = document.activeElement;
+    const done = (v) => { document.removeEventListener('keydown', onKey, true); wrap.classList.add('out'); setTimeout(() => wrap.remove(), 120); prevFocus?.focus?.(); resolve(v); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); done(false); }
+      if (e.key === 'Tab') { // 焦点留在弹窗里
+        const bs = [...wrap.querySelectorAll('button')], k = bs.indexOf(document.activeElement);
+        e.preventDefault(); bs[(k + (e.shiftKey ? bs.length - 1 : 1)) % bs.length].focus();
+      }
+      e.stopPropagation();
+    };
+    wrap.addEventListener('click', (e) => {
+      if (e.target === wrap || e.target.closest('[data-cancel]')) done(false);
+      else if (e.target.closest('[data-ok]')) done(true);
+    });
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(wrap);
+    wrap.querySelector(danger ? '[data-cancel]' : '[data-ok]').focus();
+  });
 }
 async function call(promise, { quiet = false } = {}) {
   const res = await promise;
@@ -98,7 +133,7 @@ function setNav() {
   document.querySelectorAll('.nav button').forEach((b) => b.classList.toggle('active', b.dataset.go === state.view || (state.view === 'interview' && b.dataset.go === 'home')));
 }
 async function go(view) {
-  if (state.recState !== 'idle' && view !== 'interview') { toast('正在录音，请先结束录音。', 'error'); return; }
+  if (state.recState !== 'idle' && view !== 'interview') { toast('正在录音，请先结束录音。', 'warn'); return; }
   await flushSave();
   stopCheck();
   document.body.classList.remove('focus');
@@ -109,7 +144,7 @@ async function go(view) {
 }
 document.querySelector('.nav').addEventListener('click', (e) => { const b = e.target.closest('[data-go]'); if (b) go(b.dataset.go); });
 $('#newInterview').addEventListener('click', async () => {
-  if (state.recState !== 'idle') { toast('正在录音，请先结束录音。', 'error'); return; }
+  if (state.recState !== 'idle') { toast('正在录音，请先结束录音。', 'warn'); return; }
   try {
     const i = await call(api.interviews.create({}));
     await openInterview(i.id, 'resume');
@@ -122,12 +157,25 @@ async function renderHome() {
   state.home = state.home || { q: '', status: '', page: 1 };
   const s = state.settings, h = state.home;
   const setupHint = !s?.apiKeyHint ? `<div class="notice">还没有配置模型。先到 <button class="link" data-go-settings>设置</button> 里选择 GLM 或 DeepSeek 并填写 API Key。</div>` : '';
-  main.innerHTML = `<div class="page-scroll"><header class="page-head"><div><h1>面试记录</h1><p>${state.homeList.length} 场面试 · 添加候选人 → 调试音频 → 生成面试题 → 开始面试 → 评估报告</p></div>
-   <div class="home-tools"><label class="search">${icon('search')}<input id="homeSearch" placeholder="搜索候选人…" value="${esc(h.q)}"></label>
-    <select id="homeFilter" aria-label="按状态筛选"><option value="">全部状态</option>${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${h.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div></header>
-   ${setupHint}<div id="homeTable">${homeTableHTML()}</div></div>`;
-  $('#homeSearch').addEventListener('input', (e) => { h.q = e.target.value; h.page = 1; $('#homeTable').innerHTML = homeTableHTML(); });
-  $('#homeFilter').addEventListener('change', (e) => { h.status = e.target.value; h.page = 1; $('#homeTable').innerHTML = homeTableHTML(); });
+  main.innerHTML = `<div class="page-scroll"><header class="page-head"><h1>面试记录</h1></header>
+   ${setupHint}<div class="home-bar"><label class="search">${icon('search')}<input id="homeSearch" placeholder="搜索姓名或岗位" value="${esc(h.q)}">${h.q ? '<button class="clear" id="clearSearch" title="清空">×</button>' : ''}</label>
+    <div class="filters" id="homeFilters" role="tablist" aria-label="按状态筛选">${homeFiltersHTML()}</div></div>
+   <div id="homeTable">${homeTableHTML()}</div></div>`;
+  const refresh = () => { $('#homeFilters').innerHTML = homeFiltersHTML(); $('#homeTable').innerHTML = homeTableHTML(); };
+  $('#homeSearch').addEventListener('input', (e) => {
+    h.q = e.target.value; h.page = 1; refresh();
+    const label = $('.search'), btn = $('#clearSearch');
+    if (h.q && !btn) label.insertAdjacentHTML('beforeend', '<button class="clear" id="clearSearch" title="清空">×</button>');
+    if (!h.q) btn?.remove();
+  });
+  $('.search').addEventListener('click', (e) => { if (e.target.id === 'clearSearch') { h.q = ''; h.page = 1; $('#homeSearch').value = ''; e.target.remove(); refresh(); $('#homeSearch').focus(); } });
+  $('#homeFilters').addEventListener('click', (e) => { const b = e.target.closest('[data-status]'); if (b) { h.status = b.dataset.status; h.page = 1; refresh(); } });
+}
+// 状态筛选：每个状态后面带数量（数量按当前搜索词算）
+function homeFiltersHTML() {
+  const h = state.home, q = h.q.trim().toLowerCase();
+  const rows = (state.homeList || []).filter((i) => !q || `${i.name} ${i.position}`.toLowerCase().includes(q));
+  return [['', '全部'], ...Object.entries(STATUS)].map(([k, v]) => `<button role="tab" data-status="${k}" class="${h.status === k ? 'on' : ''}" aria-selected="${h.status === k}">${v}<i>${rows.filter((i) => !k || i.status === k).length}</i></button>`).join('');
 }
 function homeTableHTML() {
   const h = state.home, all = state.homeList || [], PAGE = 10;
@@ -146,7 +194,13 @@ function homeTableHTML() {
 main.addEventListener('click', async (e) => {
   if (e.target.closest('[data-go-settings]')) { go('settings'); return; }
   const rm = e.target.closest('[data-remove]');
-  if (rm) { e.stopPropagation(); if (await call(api.interviews.remove(rm.dataset.remove)).catch(() => false)) renderHome(); return; }
+  if (rm) {
+    e.stopPropagation();
+    const name = state.homeList?.find((x) => x.id === rm.dataset.remove)?.name || '这场面试';
+    if (!await ask({ title: `删除「${name}」？`, body: '简历、录音、转写和评估报告都会被删除，无法恢复。', ok: '删除', danger: true })) return;
+    if (await call(api.interviews.remove(rm.dataset.remove)).catch(() => false)) { toast('已删除'); renderHome(); }
+    return;
+  }
   const page = e.target.closest('[data-page]');
   if (page && state.view === 'home') { state.home.page += Number(page.dataset.page); $('#homeTable').innerHTML = homeTableHTML(); return; }
   const open = e.target.closest('[data-open]');
@@ -201,19 +255,66 @@ async function renderSettings() {
     position: form.position.value.trim(), jd: form.jd.value.trim(), questionCount: Number(form.questionCount.value),
   });
   const saveAll = async () => { state.settings = await call(api.settings.save(collect())); renderSideFoot(); };
-  form.addEventListener('submit', async (e) => { e.preventDefault(); try { await saveAll(); toast('设置已保存'); renderSettings(); } catch (err) { ignoreHandled(err); } });
-  const test = (btn, out, fn) => $(btn).addEventListener('click', async () => {
+  form.addEventListener('submit', async (e) => { e.preventDefault(); try { await saveAll(); toast('设置已保存'); renderSettings(); runHealth(); } catch (err) { ignoreHandled(err); } });
+  // 测试结果同时更新侧栏的系统自检
+  const test = (btn, out, fn, key) => $(btn).addEventListener('click', async () => {
     $(out).textContent = '测试中…';
-    try { await saveAll(); $(out).textContent = `✓ ${await call(fn(), { quiet: true })}`; $(out).className = 'ok'; } catch (err) { $(out).textContent = `✗ ${err.message}`; $(out).className = 'bad'; }
+    try {
+      await saveAll();
+      $(out).textContent = `✓ ${await call(fn(), { quiet: true })}`; $(out).className = 'ok';
+      setHealth(key, 'ok');
+    } catch (err) { $(out).textContent = `✗ ${err.message}`; $(out).className = 'bad'; setHealth(key, 'bad', err.message); }
   });
-  test('#testLLM', '#testLLMResult', api.settings.testLLM);
-  test('#testASR', '#testASRResult', api.settings.testASR);
+  test('#testLLM', '#testLLMResult', api.settings.testLLM, 'llm');
+  test('#testASR', '#testASRResult', api.settings.testASR, 'asr');
   $('#openData').addEventListener('click', () => api.openDataDir());
 }
+// ---------- 系统自检（侧栏底部）----------
+// 大模型、语音转写各发一次最小的真实请求，麦克风看系统里有没有输入设备。绿色正常，红色不正常（鼠标停在上面看原因）。
+const health = { llm: { status: 'wait' }, asr: { status: 'wait' }, mic: { status: 'wait' } };
+let healthRun = 0;
+function setHealth(key, status, msg = '') {
+  health[key] = { status, msg };
+  renderSideFoot();
+}
+async function runHealth() {
+  const s = state.settings, run = ++healthRun;
+  const check = async (key, fn) => {
+    setHealth(key, 'checking');
+    try { const msg = await fn(); if (run === healthRun) setHealth(key, msg === 'off' ? 'off' : 'ok'); } catch (err) { if (run === healthRun) setHealth(key, 'bad', err.message); }
+  };
+  await Promise.all([
+    check('llm', async () => { if (!s.apiKeyHint) throw new Error('未配置 API Key'); await call(api.settings.testLLM(), { quiet: true }); }),
+    check('asr', async () => {
+      if (!s.asrEnabled) return 'off';
+      if (!(s.asrUseChatKey ? s.apiKeyHint : s.asrKeyHint)) throw new Error('未配置智谱 API Key');
+      await call(api.settings.testASR(), { quiet: true });
+    }),
+    checkMic(),
+  ]);
+}
+async function checkMic() {
+  const inputs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+  setHealth('mic', inputs.length ? 'ok' : 'bad', inputs.length ? '' : '没有找到麦克风：请插上麦克风或耳机');
+}
+navigator.mediaDevices?.addEventListener('devicechange', () => { checkMic().catch(() => {}); });
 function renderSideFoot() {
   const s = state.settings, p = state.info?.providers?.[s?.provider];
-  $('#sideFoot').innerHTML = s ? `<div class="k">模型配置<i class="dot ${s.apiKeyHint ? '' : 'off'}"></i></div><div class="m">${esc(p?.label || '')} · ${esc(s.model)}</div><div class="s ${s.apiKeyHint ? '' : 'off'}">${s.apiKeyHint ? '✓ API Key 已配置' : '未配置 API Key'}</div>` : '';
+  if (!s) { $('#sideFoot').innerHTML = ''; return; }
+  const TEXT = { wait: '等待检测', checking: '检测中…', ok: '正常', off: '已关闭' };
+  const rows = [
+    ['llm', '大模型', `${p?.label || ''} · ${s.model}`],
+    ['asr', '语音转写', s.asrModel],
+    ['mic', '麦克风', ''],
+  ];
+  const bad = rows.filter(([k]) => health[k].status === 'bad').length;
+  $('#sideFoot').innerHTML = `<div class="k"><span>系统自检${bad ? `<b class="bad-count">${bad} 项异常</b>` : ''}</span><button class="link" id="recheckHealth" ${Object.values(health).some((h) => h.status === 'checking') ? 'disabled' : ''}>重新检测</button></div>
+   <ul class="health">${rows.map(([k, label, detail]) => {
+     const h = health[k];
+     return `<li class="${h.status}" title="${esc(h.msg || TEXT[h.status])}"><i class="hdot"></i><b>${label}</b><em>${esc(h.status === 'bad' ? '异常' : TEXT[h.status])}</em><small>${esc(h.status === 'bad' ? h.msg : detail)}</small></li>`;
+   }).join('')}</ul>`;
 }
+$('#sideFoot').addEventListener('click', (e) => { if (e.target.closest('#recheckHealth')) runHealth(); });
 
 // ---------- 单场面试 ----------
 async function openInterview(id, tab) {
@@ -250,7 +351,7 @@ main.addEventListener('click', (e) => {
   if (e.target.closest('[data-back]')) { go('home'); return; }
   const t = e.target.closest('.steps [data-tab]');
   if (t) {
-    if (state.recState !== 'idle' && t.dataset.tab !== 'live') { toast('正在录音，录音结束后再切换。', 'error'); return; }
+    if (state.recState !== 'idle' && t.dataset.tab !== 'live') { toast('正在录音，录音结束后再切换。', 'warn'); return; }
     flushSave();
     state.tab = t.dataset.tab;
     renderTab();
@@ -351,8 +452,8 @@ function renderResume(body) {
 }
 async function generatePlan() {
   const i = state.interview;
-  if (!i.resume.trim()) { toast('请先上传或粘贴简历。', 'error'); return; }
-  if (i.plan && !confirm('重新生成会覆盖现有题目和「已问」标记，确定吗？')) return;
+  if (!i.resume.trim()) { toast('请先上传或粘贴简历。', 'warn'); return; }
+  if (i.plan && !await ask({ title: '重新生成面试题？', body: '现有题目、「换个问法」的改动和「已问」标记都会被覆盖。', ok: '重新生成', danger: true })) return;
   state.busy.plan = true;
   state.stream.plan = '';
   state.openQ = null;
@@ -795,7 +896,7 @@ function answerFor(q) {
 async function runReview(q, { manual = false } = {}) {
   const answer = answerFor(q);
   if (answer.replace(/\s/g, '').length < (manual ? 10 : 50)) {
-    if (manual) toast(q.askedAt == null ? '这题还没开始问（录音中切到这题或系统认出这题后才开始计）' : '候选人对这题说的话还太少', 'error');
+    if (manual) toast(q.askedAt == null ? '这题还没开始问（录音中切到这题或系统认出这题后才开始计）' : '候选人对这题说的话还太少', 'warn');
     return;
   }
   state.reviewing = q.id;
@@ -920,6 +1021,7 @@ function renderLive(body) {
   $('#recStart')?.addEventListener('click', startRecording);
   $('#restartInterview')?.addEventListener('click', async () => {
     try {
+      if (!await ask({ title: '重新开始这场面试？', body: '录音、转写、现场笔记和评估报告都会清空，无法恢复。简历和面试题会保留。', ok: '清空并重新开始', danger: true })) return;
       await flushSave();
       const fresh = await call(api.interviews.restart(state.id));
       if (!fresh) return;
@@ -998,7 +1100,7 @@ api.onSegment((seg) => {
 });
 // 面试中途插拔耳机会切换音频设备，录音可能中断或录错设备，马上提醒。
 navigator.mediaDevices?.addEventListener('devicechange', () => {
-  if (state.recState === 'recording') toast('音频设备变了（是不是插拔了耳机？）。请确认录音和转写还在正常进行。', 'error');
+  if (state.recState === 'recording') toast('音频设备变了（是不是插拔了耳机？）。请确认录音和转写还在正常进行。', 'warn');
 });
 // 复盘：点转写里的某一句，回放这一段录音。
 let playing = null;
@@ -1015,7 +1117,7 @@ const pendingChunks = new Set();
 async function startRecording() {
   const i = state.interview, s = state.settings;
   if ((i.transcript || []).some((t) => t.source !== 'asr')) {
-    if (!confirm('当前转写是导入或手动编辑的文本，开始录音后会接在后面。继续吗？')) return;
+    if (!await ask({ title: '接着录音？', body: '当前转写是导入或手动编辑的文本，开始录音后新的转写会接在后面。', ok: '开始录音' })) return;
   }
   stopCheck(); // 释放检查用的麦克风，交给正式录音
   try {
@@ -1057,7 +1159,7 @@ async function stopRecording() {
     state.tab = 'eval';
     renderInterview();
     if (transcriptText(state.interview).replace(/\s/g, '').length >= 50) generateEval({ auto: true });
-    else toast('录音已保存。转写内容太少，没法生成报告，可以在「4 面试中」导入转写后再评估。', 'error');
+    else toast('录音已保存。转写内容太少，没法生成报告，可以在「4 面试中」导入转写后再评估。', 'warn');
   } catch (err) { ignoreHandled(err); }
 }
 async function importTranscript() {
@@ -1065,7 +1167,7 @@ async function importTranscript() {
     await flushSave();
     const text = await call(api.transcript.pick());
     if (!text) return;
-    if ((state.interview.transcript || []).length && !confirm('导入会替换当前的转写内容，确定吗？')) return;
+    if ((state.interview.transcript || []).length && !await ask({ title: '替换当前转写？', body: '导入的文字会替换现在的转写内容。', ok: '导入并替换', danger: true })) return;
     state.interview = await call(api.interviews.save({ id: state.id, transcript: [{ index: 0, start: 0, text: text.trim(), source: 'import' }], dialogue: null, status: state.interview.status === 'evaluated' ? 'evaluated' : 'done' }));
     state.segErrors.clear();
     toast('转写已导入');
@@ -1096,7 +1198,7 @@ async function splitSpeakers() {
   if (state.tab === 'live') renderLive($('#tabBody'));
 }
 async function retranscribe() {
-  if ((state.interview.transcript || []).some((t) => t.text) && !confirm('用保存的录音重新转写整场面试，会替换现在的转写内容。继续吗？')) return;
+  if ((state.interview.transcript || []).some((t) => t.text) && !await ask({ title: '重新转写整场面试？', body: '会用保存的录音重新转写，替换现在的转写内容（包括手动编辑过的）。', ok: '重新转写', danger: true })) return;
   const btn = $('#retranscribe');
   btn.disabled = true;
   btn.textContent = '重新转写中…';
@@ -1104,7 +1206,7 @@ async function retranscribe() {
     await flushSave();
     const res = await call(api.audio.retranscribe(state.id));
     state.interview = res.interview;
-    toast(res.failed ? `转写完成，${res.failed} 段失败，可以稍后点「重试失败的段」` : `已重新转写 ${res.done} 段`, res.failed ? 'error' : undefined);
+    toast(res.failed ? `转写完成，${res.failed} 段失败，可以稍后点「重试失败的段」` : `已重新转写 ${res.done} 段`, res.failed ? 'warn' : 'ok');
     if (!res.failed) state.segErrors.clear();
   } catch (err) { ignoreHandled(err); }
   if (state.tab === 'live') renderLive($('#tabBody'));
@@ -1183,7 +1285,7 @@ function rhythmHTML(i) {
 }
 async function generateEval({ auto = false } = {}) {
   const i = state.interview;
-  if (!auto && i.evaluation && !confirm('重新评估会覆盖当前评估（包括手动调整的分数），确定吗？')) return;
+  if (!auto && i.evaluation && !await ask({ title: '重新评估？', body: '当前的评估报告会被覆盖，包括你手动调整过的分数。', ok: '重新评估', danger: true })) return;
   await flushSave();
   state.busy.eval = true;
   state.stream.eval = '';
@@ -1226,8 +1328,9 @@ window.addEventListener('beforeunload', (e) => { flushSave(); if (state.recState
     state.info = await call(api.info());
     state.settings = await call(api.settings.get());
     renderSideFoot();
+    runHealth();
     await go(state.settings.apiKeyHint ? 'home' : 'settings');
-    if (!state.settings.apiKeyHint) toast('先配置模型和 API Key，就可以开始使用了。');
+    if (!state.settings.apiKeyHint) toast('先配置模型和 API Key，就可以开始使用了。', 'info');
   } catch (err) { ignoreHandled(err); }
 })();
 })();
