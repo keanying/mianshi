@@ -57,18 +57,23 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await page.fill('input[name=baseURL]', url);
   await page.fill('input[name=model]', 'mock-model');
   await page.fill('input[name=apiKey]', 'test-key');
+  await page.click('#testLLM');
+  await page.waitForSelector('#testLLMResult.ok', { timeout: 15000 });
+  await page.click('[data-stab=asr]');
   await page.uncheck('input[name=asrUseChatKey]');
   await page.fill('input[name=asrKey]', 'test-key');
   await page.fill('input[name=asrBaseURL]', url);
   await page.fill('input[name=chunkSeconds]', '10');
-  await page.click('#testLLM');
-  await page.waitForSelector('#testLLMResult.ok', { timeout: 15000 });
   await page.click('#testASR');
   await page.waitForSelector('#testASRResult.ok', { timeout: 15000 });
   check(true, 'connection tests pass');
   await page.waitForFunction(() => document.querySelectorAll('#sideFoot .health li.ok').length === 3);
   check(true, 'self-check turns green once configured');
   await shot('1-settings');
+  await page.click('[data-stab=system]');
+  check((await page.textContent('#sysHealth')).includes('正常') && await page.isHidden('.settings-foot'), 'system tab shows the self-check');
+  await shot('1-settings-system');
+  await page.click('[data-stab=llm]');
   await page.click('#settingsForm button[type=submit]');
 
   // 2. 新建面试，上传 PDF 简历，生成面试题

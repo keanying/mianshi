@@ -211,9 +211,12 @@ main.addEventListener('click', async (e) => {
 async function renderSettings() {
   const s = state.settings = await call(api.settings.get());
   const P = state.info.providers;
+  const tab = state.settingsTab || 'llm';
+  const pane = (k) => `data-pane="${k}" ${tab === k ? '' : 'hidden'}`;
   main.innerHTML = `<div class="page-scroll"><header class="page-head"><div><h1>设置</h1><p>配置大模型和语音服务。简历、转写内容会发送给你选择的模型服务商处理。</p></div></header>
+  <nav class="tabs" role="tablist" id="settingsTabs">${SETTINGS_TABS.map(([k, label, hk]) => `<button type="button" role="tab" data-stab="${k}" class="${tab === k ? 'on' : ''}" aria-selected="${tab === k}">${label}${hk ? `<i class="tdot ${health[hk].status}" data-hk="${hk}"></i>` : ''}</button>`).join('')}</nav>
   <form class="settings" id="settingsForm" autocomplete="off">
-   <section class="panel"><h2>出题和评估用的大模型</h2>
+   <section class="panel" ${pane('llm')}><h2>出题和评估用的大模型</h2>
     <div class="two"><label>服务商<select name="provider">${Object.entries(P).map(([k, p]) => `<option value="${k}" ${s.provider === k ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label>
     <label>模型<input name="model" list="modelList" value="${esc(s.model)}"><datalist id="modelList">${(P[s.provider]?.models || []).map((m) => `<option value="${m}">`).join('')}</datalist></label></div>
     <label>接口地址<input name="baseURL" value="${esc(s.baseURL)}" placeholder="https://…"></label>
@@ -221,9 +224,9 @@ async function renderSettings() {
     <label class="check"><input type="checkbox" name="noThinking" ${s.thinking ? '' : 'checked'}> 关闭深度思考（出题、评估更快更省；个别不支持关闭的模型会自动照常调用）</label>
     <div class="row"><button class="btn" type="button" id="testLLM">测试连接</button><span class="muted" id="testLLMResult"></span></div>
    </section>
-   <section class="panel"><h2>语音（智谱：转写 GLM-ASR · 朗读 GLM-TTS）</h2>
+   <section class="panel" ${pane('asr')}><h2>语音（智谱：转写 GLM-ASR · 朗读 GLM-TTS）</h2>
     <label class="check"><input type="checkbox" name="asrEnabled" ${s.asrEnabled ? 'checked' : ''}> 录音时自动转写（按说话停顿切段，每段最长 ${s.chunkSeconds} 秒，边录边转）</label>
-    <label class="check"><input type="checkbox" name="asrUseChatKey" ${s.asrUseChatKey ? 'checked' : ''}> 与上面的大模型共用 API Key（大模型选的是智谱时勾选）</label>
+    <label class="check"><input type="checkbox" name="asrUseChatKey" ${s.asrUseChatKey ? 'checked' : ''}> 与「文本大模型」共用 API Key（文本大模型选的是智谱时勾选）</label>
     <label class="asr-key" ${s.asrUseChatKey ? 'hidden' : ''}>智谱 API Key<input name="asrKey" type="password" placeholder="${esc(s.asrKeyHint || '粘贴智谱 API Key')}"></label>
     <div class="two"><label>接口地址<input name="asrBaseURL" value="${esc(s.asrBaseURL)}"></label>
     <label>转写模型<input name="asrModel" list="asrModels" value="${esc(s.asrModel)}"><datalist id="asrModels"><option value="glm-asr-2512"><option value="glm-asr"></datalist></label></div>
@@ -231,13 +234,32 @@ async function renderSettings() {
     <div class="row"><button class="btn" type="button" id="testASR">测试转写</button><span class="muted" id="testASRResult"></span></div>
     <p class="hint">DeepSeek 没有语音服务：用 DeepSeek 出题和评估时，转写和朗读仍需要一个智谱的 Key。不想录音的话，也可以面试后导入飞书妙记、腾讯会议等导出的转写文本。</p>
    </section>
-   <section class="panel"><h2>出题默认值</h2>
+   <section class="panel" ${pane('defaults')}><h2>出题默认值</h2>
     <div class="two"><label>默认岗位<input name="position" value="${esc(s.position)}" placeholder="例如：AI 智能体开发工程师"></label>
     <label>每场题目数量<input name="questionCount" type="number" min="8" max="40" value="${s.questionCount}"></label></div>
     <label>岗位要求<textarea name="jd" rows="4" placeholder="可选。写上岗位职责和要求，出的基础题会更贴合">${esc(s.jd)}</textarea></label>
    </section>
-   <div class="settings-foot"><p class="hint">数据保存在本机：<button class="link" type="button" id="openData">${esc(state.info.dataDir)}</button>${s.encrypted ? ' · API Key 已用系统钥匙串加密保存' : ''}</p><button class="btn primary big" type="submit">保存设置</button></div>
+   <div ${pane('system')} class="sys">
+    <section class="panel"><div class="panel-head"><h2>系统自检</h2><button class="btn" type="button" id="recheckHealth2">${icon('refresh')}重新检测</button></div><div id="sysHealth">${healthRowsHTML()}</div></section>
+    <section class="panel"><h2>本机数据</h2>
+     <div class="kv-row"><span>数据目录</span><button class="link" type="button" id="openData">${esc(state.info.dataDir)}</button></div>
+     <div class="kv-row"><span>API Key 保存方式</span><b>${s.encrypted ? '系统钥匙串加密保存' : '本机保存（系统不支持钥匙串加密）'}</b></div>
+     <p class="hint">简历、题目、录音、转写和评估都只保存在这台电脑上；生成题目、转写和评估时，相关内容会发送给你选择的模型服务商。录音前请告知候选人并征得同意。</p></section>
+    <section class="panel"><h2>关于</h2>
+     <div class="kv-row"><span>版本</span><b>面试助手 ${esc(state.info.version)}</b></div>
+     <div class="kv-row"><span>系统</span><b>${{ win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[state.info.platform] || esc(state.info.platform)}</b></div></section>
+   </div>
+   <div class="settings-foot" ${tab === 'system' ? 'hidden' : ''}><p class="hint">切换标签不会丢失未保存的修改，最后点一次保存即可。</p><button class="btn primary big" type="submit">保存设置</button></div>
   </form></div>`;
+  $('#settingsTabs').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-stab]');
+    if (!b) return;
+    state.settingsTab = b.dataset.stab;
+    main.querySelectorAll('[data-stab]').forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-selected', x === b); });
+    main.querySelectorAll('[data-pane]').forEach((x) => { x.hidden = x.dataset.pane !== state.settingsTab; });
+    $('.settings-foot').hidden = state.settingsTab === 'system';
+  });
+  $('#recheckHealth2').addEventListener('click', () => runHealth());
   const form = $('#settingsForm');
   form.provider.addEventListener('change', () => {
     const p = P[form.provider.value];
@@ -299,20 +321,23 @@ async function checkMic() {
 }
 navigator.mediaDevices?.addEventListener('devicechange', () => { checkMic().catch(() => {}); });
 function renderSideFoot() {
+  if (!state.settings) { $('#sideFoot').innerHTML = ''; return; }
+  const bad = Object.values(health).filter((h) => h.status === 'bad').length;
+  $('#sideFoot').innerHTML = `<div class="k"><span>系统自检${bad ? `<b class="bad-count">${bad} 项异常</b>` : ''}</span><button class="link" id="recheckHealth" ${Object.values(health).some((h) => h.status === 'checking') ? 'disabled' : ''}>重新检测</button></div>${healthRowsHTML()}`;
+  // 设置页里的标签小圆点和「系统设置」里的自检列表也跟着更新
+  main.querySelectorAll('.tdot[data-hk]').forEach((d) => { d.className = `tdot ${health[d.dataset.hk].status}`; });
+  const sys = $('#sysHealth');
+  if (sys) sys.innerHTML = healthRowsHTML();
+}
+const SETTINGS_TABS = [['llm', '文本大模型', 'llm'], ['asr', '语音大模型', 'asr'], ['defaults', '默认设置', ''], ['system', '系统设置', '']];
+function healthRowsHTML() {
   const s = state.settings, p = state.info?.providers?.[s?.provider];
-  if (!s) { $('#sideFoot').innerHTML = ''; return; }
   const TEXT = { wait: '等待检测', checking: '检测中…', ok: '正常', off: '已关闭' };
-  const rows = [
-    ['llm', '大模型', `${p?.label || ''} · ${s.model}`],
-    ['asr', '语音转写', s.asrModel],
-    ['mic', '麦克风', ''],
-  ];
-  const bad = rows.filter(([k]) => health[k].status === 'bad').length;
-  $('#sideFoot').innerHTML = `<div class="k"><span>系统自检${bad ? `<b class="bad-count">${bad} 项异常</b>` : ''}</span><button class="link" id="recheckHealth" ${Object.values(health).some((h) => h.status === 'checking') ? 'disabled' : ''}>重新检测</button></div>
-   <ul class="health">${rows.map(([k, label, detail]) => {
-     const h = health[k];
-     return `<li class="${h.status}" title="${esc(h.msg || TEXT[h.status])}"><i class="hdot"></i><b>${label}</b><em>${esc(h.status === 'bad' ? '异常' : TEXT[h.status])}</em><small>${esc(h.status === 'bad' ? h.msg : detail)}</small></li>`;
-   }).join('')}</ul>`;
+  const rows = [['llm', '大模型', `${p?.label || ''} · ${s.model}`], ['asr', '语音转写', s.asrModel], ['mic', '麦克风', '']];
+  return `<ul class="health">${rows.map(([k, label, detail]) => {
+    const h = health[k];
+    return `<li class="${h.status}" title="${esc(h.msg || TEXT[h.status])}"><i class="hdot"></i><b>${label}</b><em>${esc(h.status === 'bad' ? '异常' : TEXT[h.status])}</em><small>${esc(h.status === 'bad' ? h.msg : detail)}</small></li>`;
+  }).join('')}</ul>`;
 }
 $('#sideFoot').addEventListener('click', (e) => { if (e.target.closest('#recheckHealth')) runHealth(); });
 

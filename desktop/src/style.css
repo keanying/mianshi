@@ -434,6 +434,22 @@ body.focus .side,body.focus .iv-head{display:none}
 .three li{color:var(--ink-2)}
 
 /* ---------- 设置 ---------- */
+.tabs{display:flex;gap:32px;max-width:860px;margin:-4px 0 20px;border-bottom:1px solid var(--line)}
+.tabs button{position:relative;display:flex;align-items:center;gap:8px;padding:10px 2px 12px;font-size:15px;color:var(--muted)}
+.tabs button:hover{color:var(--ink-2)}
+.tabs button.on{color:var(--accent);font-weight:600}
+.tabs button.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;border-radius:2px;background:var(--accent)}
+.tdot{width:7px;height:7px;border-radius:50%;background:#cbd5e1}
+.tdot.ok{background:#22c55e}.tdot.bad{background:#ef4444}.tdot.checking{background:#f59e0b;animation:blink 1s infinite}
+.sys{display:flex;flex-direction:column;gap:20px}
+.sys .health{gap:12px}
+.sys .health li{grid-template-columns:10px 90px 1fr auto;padding:10px 0;border-bottom:1px solid var(--line-2)}
+.sys .health li:last-child{border-bottom:0}
+.sys .health small{grid-column:3;grid-row:1;-webkit-line-clamp:1}
+.sys .health em{grid-column:4}
+.kv-row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:10px 0;border-bottom:1px solid var(--line-2);font-size:13.5px;color:var(--muted)}
+.kv-row b{font-weight:500;color:var(--ink)}
+.kv-row .link{word-break:break-all;text-align:right}
 .settings{max-width:860px;display:flex;flex-direction:column;gap:20px}
 .settings .panel h2{margin-bottom:16px}
 .settings label:not(.check){display:block;margin-bottom:14px;font-size:12.5px;font-weight:600;color:var(--muted)}
