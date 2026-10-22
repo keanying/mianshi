@@ -108,9 +108,30 @@ function enhanceSelect(sel) {
     dropdown(btn, groups, { onPick: (v) => { if (sel.value !== v) { sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); } } });
   });
 }
+// 数字输入框加上 − / + 按钮（参照 HeroUI NumberInput），按 min / max / step 限定范围。
+function enhanceNumber(input) {
+  input.dataset.num = '1';
+  const wrap = document.createElement('span');
+  wrap.className = 'num';
+  input.before(wrap);
+  const btn = (d, label) => `<button type="button" class="num-btn" data-d="${d}" aria-label="${label}" tabindex="-1">${d < 0 ? '−' : '+'}</button>`;
+  wrap.insertAdjacentHTML('beforeend', btn(-1, '减少'));
+  wrap.appendChild(input);
+  wrap.insertAdjacentHTML('beforeend', btn(1, '增加'));
+  wrap.addEventListener('click', (e) => {
+    const b = e.target.closest('.num-btn');
+    if (!b) return;
+    e.preventDefault();
+    const step = Number(input.step) || 1, min = input.min === '' ? -Infinity : Number(input.min), max = input.max === '' ? Infinity : Number(input.max);
+    input.value = Math.min(max, Math.max(min, (Number(input.value) || 0) + step * Number(b.dataset.d)));
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
 // 页面重绘时：新出现的下拉框换成自定义样式；触发按钮被换掉了（例如音频调试页刷新）就把打开的菜单关掉。
 new MutationObserver(() => {
   document.querySelectorAll('select:not([data-dd])').forEach(enhanceSelect);
+  document.querySelectorAll('input[type=number]:not([data-num])').forEach(enhanceNumber);
   if (ddClose && !ddAnchor?.isConnected) ddClose();
 }).observe(document.body, { childList: true, subtree: true });
 
@@ -309,12 +330,12 @@ async function renderSettings() {
     <label>模型<input name="model" list="modelList" value="${esc(s.model)}"><datalist id="modelList">${(P[s.provider]?.models || []).map((m) => `<option value="${m}">`).join('')}</datalist></label></div>
     <label>接口地址<input name="baseURL" value="${esc(s.baseURL)}" placeholder="https://…"></label>
     <label>API Key<input name="apiKey" type="password" placeholder="${esc(s.apiKeyHint || '粘贴 API Key')}"></label>
-    <label class="check"><input type="checkbox" name="noThinking" ${s.thinking ? '' : 'checked'}> 关闭深度思考（出题、评估更快更省；个别不支持关闭的模型会自动照常调用）</label>
+    <label class="switch-row"><span><b>关闭深度思考</b><small>出题、评估更快更省；个别不支持关闭的模型会自动照常调用</small></span><input type="checkbox" class="switch" role="switch" name="noThinking" ${s.thinking ? '' : 'checked'}></label>
     <div class="row"><button class="btn" type="button" id="testLLM">测试连接</button><span class="muted" id="testLLMResult"></span></div>
    </section>
-   <section class="panel" ${pane('asr')}><h2>语音（智谱：转写 GLM-ASR · 朗读 GLM-TTS）</h2>
-    <label class="check"><input type="checkbox" name="asrEnabled" ${s.asrEnabled ? 'checked' : ''}> 录音时自动转写（按说话停顿切段，每段最长 ${s.chunkSeconds} 秒，边录边转）</label>
-    <label class="check"><input type="checkbox" name="asrUseChatKey" ${s.asrUseChatKey ? 'checked' : ''}> 与「文本大模型」共用 API Key（文本大模型选的是智谱时勾选）</label>
+   <section class="panel" ${pane('asr')}><h2>语音转写与朗读（智谱）</h2>
+    <label class="switch-row"><span><b>录音时自动转写</b><small>按说话停顿切段、边录边转；关掉的话可以面试后导入会议软件的转写</small></span><input type="checkbox" class="switch" role="switch" name="asrEnabled" ${s.asrEnabled ? 'checked' : ''}></label>
+    <label class="switch-row"><span><b>与「文本大模型」共用 API Key</b><small>文本大模型选的是智谱时打开；用 DeepSeek 时关掉，另填智谱的 Key</small></span><input type="checkbox" class="switch" role="switch" name="asrUseChatKey" ${s.asrUseChatKey ? 'checked' : ''}></label>
     <label class="asr-key" ${s.asrUseChatKey ? 'hidden' : ''}>智谱 API Key<input name="asrKey" type="password" placeholder="${esc(s.asrKeyHint || '粘贴智谱 API Key')}"></label>
     <div class="two"><label>接口地址<input name="asrBaseURL" value="${esc(s.asrBaseURL)}"></label>
     <label>转写模型<input name="asrModel" list="asrModels" value="${esc(s.asrModel)}"><datalist id="asrModels"><option value="glm-asr-2512"><option value="glm-asr"></datalist></label></div>
@@ -419,12 +440,12 @@ function renderSideFoot() {
 }
 const SETTINGS_TABS = [['llm', '文本大模型', 'llm'], ['asr', '语音大模型', 'asr'], ['defaults', '默认设置', ''], ['system', '系统设置', '']];
 function healthRowsHTML() {
-  const s = state.settings, p = state.info?.providers?.[s?.provider];
+  // 只显示状态，不显示模型名；异常时下面一行写原因
   const TEXT = { wait: '等待检测', checking: '检测中…', ok: '正常', off: '已关闭' };
-  const rows = [['llm', '大模型', `${p?.label || ''} · ${s.model}`], ['asr', '语音转写', s.asrModel], ['mic', '麦克风', '']];
-  return `<ul class="health">${rows.map(([k, label, detail]) => {
+  const rows = [['llm', '大模型'], ['asr', '语音转写'], ['mic', '麦克风']];
+  return `<ul class="health">${rows.map(([k, label]) => {
     const h = health[k];
-    return `<li class="${h.status}" title="${esc(h.msg || TEXT[h.status])}"><i class="hdot"></i><b>${label}</b><em>${esc(h.status === 'bad' ? '异常' : TEXT[h.status])}</em><small>${esc(h.status === 'bad' ? h.msg : detail)}</small></li>`;
+    return `<li class="${h.status}" title="${esc(h.msg || TEXT[h.status])}"><i class="hdot"></i><b>${label}</b><em>${esc(h.status === 'bad' ? '异常' : TEXT[h.status])}</em><small>${esc(h.status === 'bad' ? h.msg : '')}</small></li>`;
   }).join('')}</ul>`;
 }
 $('#sideFoot').addEventListener('click', (e) => { if (e.target.closest('#recheckHealth')) runHealth(); });
