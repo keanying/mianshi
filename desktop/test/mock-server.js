@@ -41,6 +41,17 @@ function start(port = 0) {
         res.end(JSON.stringify({ text: control.asr ?? `第${calls.filter((c) => c.url.endsWith('/audio/transcriptions')).length}段：候选人说我觉得可能就需要重新生成了，向量库那边做一个幂等更新，有重复的证据就不再写入。` }));
         return;
       }
+      if (req.url.endsWith('/audio/speech')) {
+        // 合成一段 2 秒、带起伏的音调当作“朗读”。
+        const rate = 16000, n = rate * 2, out = Buffer.alloc(44 + n * 2);
+        out.write('RIFF', 0); out.writeUInt32LE(36 + n * 2, 4); out.write('WAVE', 8); out.write('fmt ', 12); out.writeUInt32LE(16, 16);
+        out.writeUInt16LE(1, 20); out.writeUInt16LE(1, 22); out.writeUInt32LE(rate, 24); out.writeUInt32LE(rate * 2, 28); out.writeUInt16LE(2, 32);
+        out.writeUInt16LE(16, 34); out.write('data', 36); out.writeUInt32LE(n * 2, 40);
+        for (let k = 0; k < n; k++) out.writeInt16LE(Math.round(Math.sin(k / rate * 2 * Math.PI * 240) * 8000), 44 + k * 2);
+        res.writeHead(200, { 'Content-Type': 'audio/wav' });
+        res.end(out);
+        return;
+      }
       if (!req.url.endsWith('/chat/completions')) { res.writeHead(404); res.end(); return; }
       const payload = JSON.parse(body.toString('utf8'));
       // 模拟不支持关闭思考的模型（如 GLM-5.3）：带 thinking.disabled 时报 400。

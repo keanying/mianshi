@@ -162,6 +162,15 @@ test('live review output is normalized', () => {
   assert.match(prompts.reviewMessages({ question: { q: '题', points: ['a', 'b'] }, answer: '回答' })[1].content, /1\. a\n2\. b/);
 });
 
+test('speech synthesis returns a wav for the simulated candidate', async () => {
+  const { synthesize } = require('../../lib/asr');
+  const { server, url, calls } = await mock.start();
+  const wav = await synthesize({ baseURL: url, apiKey: 'test-key', text: '您好' });
+  assert.strictEqual(wav.subarray(0, 4).toString(), 'RIFF');
+  assert.deepStrictEqual(JSON.parse(calls.at(-1).body), { model: 'glm-tts', input: '您好', voice: 'female', response_format: 'wav' });
+  server.close();
+});
+
 test('noise-only ASR output counts as silence', async () => {
   const { server, url, setAsr } = await mock.start();
   setAsr('#');
