@@ -143,7 +143,7 @@ new MutationObserver(() => {
 }).observe(document.body, { childList: true, subtree: true });
 
 // 按钮水波纹（参照 RippleButton）：按下时从点击位置扩散一圈，600ms 后淡出。颜色由 CSS 变量 --ripple 决定。
-const RIPPLE_TARGETS = '.btn, .nav button, .tabs button, .filters button, .dd-trigger, .score-btn, .tick, .q-row';
+const RIPPLE_TARGETS = '.btn, .tabs button, .filters button, .dd-trigger, .score-btn, .tick, .q-row';
 document.addEventListener('pointerdown', (e) => {
   const el = e.button === 0 && e.target.closest(RIPPLE_TARGETS);
   if (!el || el.disabled || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -230,6 +230,11 @@ const ICON = {
   sparkle: '<path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',
   download: '<path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 20h16"/>',
   check: '<path d="m5 12 5 5 9-10"/>',
+  pulse: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M21.5 20a6.5 6.5 0 0 0-4-6"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  clipboard: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 11h6M9 15h4"/>',
+  award: '<circle cx="12" cy="9" r="5.5"/><path d="m8.5 13.5-1.5 7.5 5-3 5 3-1.5-7.5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
   briefcase: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18"/>',
@@ -255,7 +260,7 @@ function radarSVG(e) {
   const rings = [1, 2, 3, 4, 5].map((v) => `<polygon points="${poly(() => R * v / 5)}" fill="none" stroke="#e5e8ee"/>`).join('');
   const axes = e.dimensions.map((d, k) => { const [x, y] = pt(k, R); return `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#e5e8ee"/>`; }).join('');
   const labels = e.dimensions.map((d, k) => { const [x, y] = pt(k, R + 18); return `<text x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="middle" font-size="11.5" fill="#64748b">${esc(d.name)}</text>`; }).join('');
-  return `<svg class="radar" viewBox="0 0 240 220" aria-label="五维得分">${rings}${axes}<polygon points="${poly((d) => R * d.score / 5)}" fill="#0f766e33" stroke="#0f766e" stroke-width="2"/>${labels}</svg>`;
+  return `<svg class="radar" viewBox="0 0 240 220" aria-label="五维得分">${rings}${axes}<polygon points="${poly((d) => R * d.score / 5)}" fill="#5b45e02e" stroke="#5b45e0" stroke-width="2"/>${labels}</svg>`;
 }
 const average = (e) => Math.round(e.dimensions.reduce((a, d) => a + d.score, 0) / e.dimensions.length * 10) / 10;
 
@@ -270,6 +275,7 @@ async function go(view) {
   document.body.classList.remove('focus');
   state.view = view;
   setNav();
+  if (view === 'overview') await renderOverview();
   if (view === 'home') await renderHome();
   if (view === 'positions') await renderPositions();
   if (view === 'settings') await renderSettings();
@@ -348,6 +354,142 @@ main.addEventListener('click', async (e) => {
   if (page && state.view === 'home') { state.home.page += Number(page.dataset.page); $('#homeTable').innerHTML = homeTableHTML(); return; }
   const open = e.target.closest('[data-open]');
   if (open && state.view === 'home') openInterview(open.dataset.open);
+});
+
+// ---------- 概览 ----------
+// 首页：几个关键数字、评估结果（达标率环形图 + 五维平均分）、每周面试数、各岗位进展、待处理的面试。
+// 状态色（达标 / 未达标 / 进行中）固定，旁边都带文字，不靠颜色区分。
+const STATUS_COLOR = { pass: '#0ca30c', fail: '#d03b3b', open: '#c9ccda' };
+const TODO = { draft: ['待出题', 'resume'], ready: ['待面试', 'live'], done: ['待评估', 'eval'] };
+async function renderOverview() {
+  const [list, positions] = await Promise.all([call(api.interviews.list()).catch(() => []), loadPositions()]);
+  const now = new Date(), monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const head = `<header class="page-head"><div><h1>概览</h1><p>${now.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</p></div>
+   <button class="btn cta" data-ov-add>${icon('plus')}添加候选人</button></header>`;
+  if (!list.length) { main.innerHTML = `<div class="page-scroll ov">${head}${onboardingHTML(positions)}</div>`; return; }
+  const evaluated = list.filter((i) => i.dims), judged = evaluated.filter((i) => i.passed != null);
+  const passed = judged.filter((i) => i.passed).length;
+  const month = list.filter((i) => i.createdAt >= monthStart).length;
+  const kpi = (ico, cls, label, value, sub) => `<div class="kpi"><i class="kpi-ico ${cls}">${icon(ico)}</i><div><span>${label}</span><b>${value}</b><small>${sub}</small></div></div>`;
+  main.innerHTML = `<div class="page-scroll ov">${head}
+   <div class="kpis">
+    ${kpi('users', 'k1', '面试总数', list.length, `${positions.length} 个岗位`)}
+    ${kpi('calendar', 'k2', '本月新增', month, `${now.getMonth() + 1} 月`)}
+    ${kpi('clipboard', 'k3', '已评估', evaluated.length, `还有 ${list.length - evaluated.length} 场未评估`)}
+    ${kpi('award', 'k4', '达标率', judged.length ? `${Math.round(passed / judged.length * 100)}%` : '—', judged.length ? `${passed} / ${judged.length} 人达标` : '关联岗位后才判断')}
+   </div>
+   <div class="ov-grid">
+    <section class="panel ov-result">${resultHTML(evaluated, judged, passed)}</section>
+    <div class="ov-mid">
+     <section class="panel">${weeklyHTML(list)}</section>
+     <section class="panel">${byPositionHTML(list, positions)}</section>
+    </div>
+    <section class="panel ov-todo">${todoHTML(list)}${insightHTML(evaluated)}</section>
+   </div></div>`;
+}
+function onboardingHTML(positions) {
+  const s = state.settings;
+  const step = (done, n, title, text, btn) => `<div class="ob-step ${done ? 'done' : ''}"><i>${done ? icon('check') : n}</i><div><b>${title}</b><p>${text}</p></div>${done ? '<span class="ok small">已完成</span>' : btn}</div>`;
+  return `<section class="panel onboarding"><h2>开始第一场面试</h2><p class="muted">三步就能用起来：</p>
+   ${step(Boolean(s?.apiKeyHint), 1, '配置模型', '选择 DeepSeek 或智谱，填写 API Key；语音转写需要智谱的 Key。', '<button class="btn" data-go-settings>去设置</button>')}
+   ${step(positions.length > 0, 2, '新建岗位', '填写岗位名称、级别、岗位要求、技术栈和达标线。', '<button class="btn" data-go-positions>去新建</button>')}
+   ${step(false, 3, '添加候选人', '选择岗位、上传简历，调试音频后生成面试题，开始面试。', '<button class="btn primary" data-ov-add>添加候选人</button>')}</section>`;
+}
+// 评估结果：达标 / 未达标 / 未判断（没关联岗位）的环形图，下面是五个维度的平均分。
+function resultHTML(evaluated, judged, passed) {
+  const failed = judged.length - passed, unjudged = evaluated.length - judged.length;
+  const parts = [['pass', '达标', passed], ['fail', '未达标', failed], ['open', '未判断', unjudged]].filter((x) => x[2]);
+  const total = evaluated.length, R = 70, C = 2 * Math.PI * R, GAP = parts.length > 1 ? 3 : 0;
+  let offset = 0;
+  const arcs = parts.map(([k, label, n]) => {
+    const len = n / total * C;
+    const arc = `<circle cx="90" cy="90" r="${R}" fill="none" stroke="${STATUS_COLOR[k]}" stroke-width="14" stroke-dasharray="${Math.max(0, len - GAP)} ${C}" stroke-dashoffset="${-offset}" data-tt="${label}：${n} 人（${Math.round(n / total * 100)}%）"/>`;
+    offset += len;
+    return arc;
+  }).join('');
+  const dims = Levels.DIMS.map((d, k) => {
+    const xs = evaluated.map((i) => i.dims[k]).filter((x) => typeof x === 'number');
+    const avg = xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length * 10) / 10 : null;
+    return `<div class="dim-avg" data-tt="${d}：${xs.length} 人平均 ${avg ?? '—'} 分"><span>${d}</span><b>${avg ?? '—'}</b><i class="mini ${DIM_COLORS[d]}"><em style="width:${(avg || 0) / 5 * 100}%"></em></i></div>`;
+  }).join('');
+  return `<div class="card-head"><h2>评估结果</h2><span class="muted small">共 ${total} 人已评估</span></div>
+   ${total ? `<div class="ring-wrap"><svg class="ring" viewBox="0 0 180 180" role="img" aria-label="达标 ${passed} 人，未达标 ${failed} 人，未判断 ${unjudged} 人">
+     <circle cx="90" cy="90" r="${R}" fill="none" stroke="#eef0f6" stroke-width="14"/><g transform="rotate(-90 90 90)">${arcs}</g></svg>
+     <div class="ring-center"><span>达标率</span><b>${judged.length ? Math.round(passed / judged.length * 100) : '—'}<small>${judged.length ? '%' : ''}</small></b><em>${passed} / ${judged.length || 0} 人</em></div></div>
+    <div class="legend">${parts.map(([k, label, n]) => `<span><i style="background:${STATUS_COLOR[k]}"></i>${label} ${n}</span>`).join('')}</div>`
+    : '<p class="muted ov-empty">还没有评估过的面试</p>'}
+   <div class="mini-label" style="margin-top:18px">五个维度平均分</div><div class="dim-avgs">${dims}</div>`;
+}
+// 每周面试数（最近 8 周，按周一开始算）：单一序列的面积折线图，悬停看每周数字。
+function weeklyHTML(list) {
+  const monday = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+  const start = monday(new Date());
+  const weeks = Array.from({ length: 8 }, (_, k) => { const d = new Date(start); d.setDate(d.getDate() - (7 - k) * 7); return d; });
+  const counts = weeks.map((w, k) => list.filter((i) => { const t = new Date(i.createdAt); return t >= w && (k === 7 || t < weeks[k + 1]); }).length);
+  const W = 520, H = 170, L = 28, T = 16, B = 26, max = Math.max(2, ...counts), top = Math.ceil(max / 2) * 2;
+  const x = (k) => L + k * (W - L - 12) / 7, y = (v) => T + (H - T - B) * (1 - v / top);
+  const pts = counts.map((v, k) => [x(k), y(v)]);
+  // 平滑曲线：相邻点之间用三次贝塞尔，控制点取水平中点
+  const path = pts.map(([px, py], k) => (k ? `C${(pts[k - 1][0] + px) / 2},${pts[k - 1][1]} ${(pts[k - 1][0] + px) / 2},${py} ${px},${py}` : `M${px},${py}`)).join(' ');
+  const ticks = [0, top / 2, top];
+  const label = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+  const thisWeek = counts[7], lastWeek = counts[6];
+  return `<div class="card-head"><div><h2>每周面试数</h2><span class="muted small">最近 8 周</span></div><div class="delta"><b>${thisWeek}</b><span class="${thisWeek >= lastWeek ? 'up' : 'down'}">本周 · 比上周 ${thisWeek >= lastWeek ? '+' : ''}${thisWeek - lastWeek}</span></div></div>
+   <svg class="line-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="最近 8 周每周面试数：${counts.join('、')}">
+    ${ticks.map((v) => `<line x1="${L}" x2="${W - 4}" y1="${y(v)}" y2="${y(v)}" class="grid"/><text x="${L - 8}" y="${y(v) + 4}" class="axis" text-anchor="end">${v}</text>`).join('')}
+    <path d="${path} L${x(7)},${y(0)} L${x(0)},${y(0)} Z" class="area"/>
+    <path d="${path}" class="line"/>
+    ${weeks.map((w, k) => `<text x="${x(k)}" y="${H - 6}" class="axis" text-anchor="middle">${k === 7 ? '本周' : label(w)}</text>`).join('')}
+    ${pts.map(([px, py], k) => `<g class="pt" data-tt="${k === 7 ? '本周' : `${label(weeks[k])} 那周`}：${counts[k]} 场"><circle cx="${px}" cy="${py}" r="12" class="hit"/><circle cx="${px}" cy="${py}" r="4.5" class="dot ${k === 7 ? 'last' : ''}"/></g>`).join('')}
+   </svg>`;
+}
+// 各岗位进展：每个岗位一条横向堆叠条（达标 / 未达标 / 进行中），最多 6 个岗位。
+function byPositionHTML(list, positions) {
+  const rows = positions.map((p) => {
+    const xs = list.filter((i) => i.positionId === p.id);
+    return { p, pass: xs.filter((i) => i.passed === true).length, fail: xs.filter((i) => i.passed === false).length, open: xs.filter((i) => i.passed == null).length, total: xs.length };
+  }).filter((r) => r.total).sort((a, b) => b.total - a.total).slice(0, 6);
+  const max = Math.max(1, ...rows.map((r) => r.total));
+  const seg = (k, n, label, r) => (n ? `<i style="width:${n / max * 100}%;background:${STATUS_COLOR[k]}" data-tt="${esc(r.p.title)} · ${label} ${n} 人"></i>` : '');
+  return `<div class="card-head"><h2>各岗位进展</h2><div class="legend small-legend"><span><i style="background:${STATUS_COLOR.pass}"></i>达标</span><span><i style="background:${STATUS_COLOR.fail}"></i>未达标</span><span><i style="background:${STATUS_COLOR.open}"></i>进行中</span></div></div>
+   ${rows.length ? `<div class="hbars">${rows.map((r) => `<div class="hbar"><span class="hb-name">${esc(r.p.title)}${levelChip(r.p.level)}</span><span class="hb-track">${seg('pass', r.pass, '达标', r)}${seg('fail', r.fail, '未达标', r)}${seg('open', r.open, '进行中', r)}</span><b>${r.total}</b></div>`).join('')}</div>`
+    : `<p class="muted ov-empty">还没有关联岗位的面试。${positions.length ? '添加候选人时选择岗位就会出现在这里。' : '<button class="link" data-go-positions>先新建岗位</button>'}</p>`}`;
+}
+// 待处理：还没出题、还没面试、还没评估的面试，最近的在前。
+function todoHTML(list) {
+  const xs = list.filter((i) => TODO[i.status]).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')).slice(0, 6);
+  const avatar = (name) => `<i class="avatar a${([...(name || '?')].reduce((a, c) => a + c.charCodeAt(0), 0) % 5) + 1}">${esc((name || '?').slice(0, 1))}</i>`;
+  return `<div class="card-head"><h2>待处理</h2><button class="link small" data-go-home>全部面试</button></div>
+   ${xs.length ? `<div class="todo">${xs.map((i) => `<button class="todo-row" data-ov-open="${i.id}" data-ov-tab="${TODO[i.status][1]}">${avatar(i.name)}<span><b>${esc(i.name || '未命名候选人')}</b><small>${esc(i.position || '未填写岗位')}${i.level ? ` · ${esc(i.level)}` : ''}</small></span><em class="todo-tag t-${i.status}">${TODO[i.status][0]}</em></button>`).join('')}</div>`
+    : '<p class="muted ov-empty">都处理完了</p>'}`;
+}
+// 一句提示：已评估的人里最弱的维度，提醒出题时多准备这方面的题。
+function insightHTML(evaluated) {
+  if (evaluated.length < 2) return '<div class="tip-box">评估过两位以上候选人后，这里会提示大家普遍偏弱的地方。</div>';
+  const avgs = Levels.DIMS.map((d, k) => [d, evaluated.reduce((a, i) => a + (i.dims[k] || 0), 0) / evaluated.length]);
+  const [weak, v] = avgs.sort((a, b) => a[1] - b[1])[0];
+  return `<div class="tip-box">已评估的 ${evaluated.length} 位候选人里，<b>${weak}</b> 普遍最弱（平均 ${v.toFixed(1)} 分）。出题时可以多准备这方面的题，门槛题里也可以放一道。</div>`;
+}
+main.addEventListener('click', async (e) => {
+  if (state.view !== 'overview') return;
+  if (e.target.closest('[data-ov-add]')) { $('#newInterview').click(); return; }
+  if (e.target.closest('[data-go-home]')) { go('home'); return; }
+  const o = e.target.closest('[data-ov-open]');
+  if (o) openInterview(o.dataset.ovOpen, o.dataset.ovTab);
+});
+// 图表悬停提示：带 data-tt 的图形，鼠标停上去显示一行说明。
+const chartTip = document.createElement('div');
+chartTip.className = 'chart-tip';
+chartTip.hidden = true;
+document.body.appendChild(chartTip);
+document.addEventListener('mousemove', (e) => {
+  const el = e.target.closest?.('[data-tt]');
+  if (!el) { chartTip.hidden = true; return; }
+  chartTip.textContent = el.dataset.tt;
+  chartTip.hidden = false;
+  const w = chartTip.offsetWidth;
+  chartTip.style.left = `${Math.min(window.innerWidth - w - 8, e.clientX + 14)}px`;
+  chartTip.style.top = `${e.clientY + 16}px`;
 });
 
 // ---------- 岗位 ----------
@@ -559,7 +701,10 @@ navigator.mediaDevices?.addEventListener('devicechange', () => { checkMic().catc
 function renderSideFoot() {
   if (!state.settings) { $('#sideFoot').innerHTML = ''; return; }
   const bad = Object.values(health).filter((h) => h.status === 'bad').length;
-  $('#sideFoot').innerHTML = `<div class="k"><span>系统自检${bad ? `<b class="bad-count">${bad} 项异常</b>` : ''}</span><button class="link" id="recheckHealth" ${Object.values(health).some((h) => h.status === 'checking') ? 'disabled' : ''}>重新检测</button></div>${healthRowsHTML()}`;
+  const all = Object.values(health), overall = bad ? 'bad' : all.some((h) => h.status === 'checking' || h.status === 'wait') ? 'checking' : 'ok';
+  const foot = $('#sideFoot');
+  foot.innerHTML = `<button class="health-btn ${overall}" id="healthBtn" ${foot.classList.contains('open') ? '' : `data-tip="系统自检：${overall === 'ok' ? '正常' : overall === 'bad' ? `${bad} 项异常` : '检测中'}"`} aria-label="系统自检">${icon('pulse')}<i class="sdot"></i></button>
+   <div class="health-pop"><div class="k"><span>系统自检${bad ? `<b class="bad-count">${bad} 项异常</b>` : ''}</span><button class="link" id="recheckHealth" ${all.some((h) => h.status === 'checking') ? 'disabled' : ''}>重新检测</button></div>${healthRowsHTML()}</div>`;
   // 设置页里的标签小圆点和「系统设置」里的自检列表也跟着更新
   main.querySelectorAll('.tdot[data-hk]').forEach((d) => { d.className = `tdot ${health[d.dataset.hk].status}`; });
   const sys = $('#sysHealth');
@@ -575,7 +720,15 @@ function healthRowsHTML() {
     return `<li class="${h.status}" title="${esc(h.msg || TEXT[h.status])}"><i class="hdot"></i><b>${label}</b><em>${esc(h.status === 'bad' ? '异常' : TEXT[h.status])}</em><small>${esc(h.status === 'bad' ? h.msg : '')}</small></li>`;
   }).join('')}</ul>`;
 }
-$('#sideFoot').addEventListener('click', (e) => { if (e.target.closest('#recheckHealth')) runHealth(); });
+$('#sideFoot').addEventListener('click', (e) => {
+  if (e.target.closest('#recheckHealth')) { runHealth(); return; }
+  if (e.target.closest('#healthBtn')) { $('#sideFoot').classList.toggle('open'); renderSideFoot(); }
+});
+// 点自检弹层外面就收起
+document.addEventListener('mousedown', (e) => {
+  const foot = $('#sideFoot');
+  if (foot.classList.contains('open') && !foot.contains(e.target)) { foot.classList.remove('open'); renderSideFoot(); }
+});
 
 // ---------- 单场面试 ----------
 async function openInterview(id, tab) {
@@ -1660,7 +1813,7 @@ window.addEventListener('beforeunload', (e) => { flushSave(); if (state.recState
     state.settings = await call(api.settings.get());
     renderSideFoot();
     runHealth();
-    await go(state.settings.apiKeyHint ? 'home' : 'settings');
+    await go(state.settings.apiKeyHint ? 'overview' : 'settings');
     if (!state.settings.apiKeyHint) toast('先配置模型和 API Key，就可以开始使用了。', 'info');
   } catch (err) { ignoreHandled(err); }
 })();

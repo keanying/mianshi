@@ -50,7 +50,8 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   // 1. 首次启动进入设置页
   await page.waitForSelector('#settingsForm');
   check(true, 'first launch opens settings');
-  await page.waitForSelector('#sideFoot .health li.bad');
+  await page.waitForSelector('#sideFoot .health li.bad', { state: 'attached' });
+  check(await page.locator('#healthBtn.bad').count() === 1, 'self-check button turns red when something is wrong');
   check((await page.textContent('#sideFoot')).includes('未配置 API Key'), 'self-check shows the missing API key in red');
   await shot('0-first-run');
   await page.selectOption('select[name=provider]', 'custom');
@@ -223,6 +224,16 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await page.click('.nav [data-go=home]');
   await page.waitForSelector('.tr[data-open]');
   check((await page.textContent('.table')).includes('王小明') && (await page.textContent('.table')).includes('已评估') && (await page.textContent('.table')).includes('未达标'), 'list shows evaluated interview with the pass result');
+  await page.click('.nav [data-go=overview]');
+  await page.waitForSelector('.kpis');
+  check((await page.textContent('.kpis')).includes('面试总数') && await page.locator('.ring circle[data-tt]').count() >= 1 && (await page.textContent('.ov-grid')).includes('智能体开发工程师'), 'overview shows totals, the pass ring and per-position progress');
+  const ring = await page.locator('.ring circle[data-tt]').first().boundingBox();
+  await page.mouse.move(ring.x + ring.width / 2 + 3, ring.y + 5);
+  check(!(await page.isHidden('.chart-tip')) && (await page.textContent('.chart-tip')).includes('未达标'), 'overview charts show a tooltip on hover');
+  await page.mouse.move(5, 5);
+  await shot('0-overview');
+  await page.click('.nav [data-go=home]');
+  await page.waitForSelector('.tr[data-open]');
   await shot('6-home');
 
   // 6. 重新开始面试：打开记录，清空录音、转写和报告，简历和题目保留。
