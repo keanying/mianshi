@@ -56,6 +56,7 @@ function createStore(root) {
           return {
             id: i.id, name: i.name, position: i.position, positionId: i.positionId || '', level: i.level || '', createdAt: i.createdAt, updatedAt: i.updatedAt, status: i.status,
             passed: judge(i.evaluation, i.pass)?.passed ?? null,
+            dims: i.evaluation?.dimensions?.length ? i.evaluation.dimensions.map((x) => x.score) : null,
             verdict: i.evaluation?.overall?.verdict || '',
             average: scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length * 10) / 10 : null,
           };

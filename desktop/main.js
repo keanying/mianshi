@@ -26,7 +26,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1320, height: 860, minWidth: 1040, minHeight: 680,
     title: '面试助手',
-    backgroundColor: '#f5f6f8',
+    backgroundColor: '#eef0f7',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   win.loadFile(path.join(__dirname, 'src', 'index.html'));

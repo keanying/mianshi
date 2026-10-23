@@ -37,7 +37,7 @@ body{font:13px/1.75 "PingFang SC","Microsoft YaHei",sans-serif;color:#0f172a;mar
 h1{font-size:22px;margin:0 0 6px}h2{font-size:15px;margin:26px 0 10px;padding-bottom:6px;border-bottom:1px solid #e2e8f0}
 .meta{color:#64748b;margin:0 0 18px}.verdict{display:inline-block;padding:2px 10px;border-radius:999px;background:#0f172a;color:#fff;font-weight:600;margin-right:8px}
 table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #eef1f5;padding:8px 6px;text-align:left;vertical-align:top}th{color:#64748b;font-weight:600;font-size:12px}
-.bar{display:inline-block;width:80px;height:6px;background:#eef1f5;border-radius:3px;vertical-align:middle;margin-right:8px}.bar i{display:block;height:100%;background:#0f766e;border-radius:3px}
+.bar{display:inline-block;width:80px;height:6px;background:#eef1f5;border-radius:3px;vertical-align:middle;margin-right:8px}.bar i{display:block;height:100%;background:#5b45e0;border-radius:3px}
 .ev{color:#475569;font-size:12px;margin:4px 0 0;padding-left:16px}.muted{color:#94a3b8}.cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}
 </style></head><body>
 <h1>面试评估：${esc(i.name || '未命名候选人')}</h1>
