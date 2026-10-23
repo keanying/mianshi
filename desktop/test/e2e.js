@@ -83,9 +83,25 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   check((await page.textContent('select[name=provider] + .dd-trigger')).includes('自定义'), 'custom dropdown mirrors the selected option');
   await page.click('#settingsForm button[type=submit]');
 
-  // 2. 新建面试，上传 PDF 简历，生成面试题
-  await page.click('#newInterview');
+  // 岗位：新建「智能体开发工程师 · 中级」，切到高级再切回中级，达标线跟着级别变。
+  await page.click('.nav [data-go=positions]');
+  await page.click('#newPosition2');
+  await page.waitForSelector('.modal.sheet');
+  await page.fill('.modal.sheet input[name=title]', '智能体开发工程师');
+  await page.click('.level-seg label:has-text("高级")');
+  check((await page.inputValue('.modal.sheet input[name=average]')) === '3.5', 'position: choosing a level fills its default pass line');
+  await page.click('.level-seg label:has-text("中级")');
+  await page.fill('.modal.sheet textarea[name=jd]', '负责 RAG 和 Agent 开发');
+  await shot('1-position-editor');
+  await page.click('.modal.sheet button[type=submit]');
+  await page.waitForSelector('.pos-card');
+  check((await page.textContent('.pos-card')).includes('平均 ≥ 3') && (await page.textContent('.pos-card')).includes('中级'), 'position saved with level and pass line');
+  await shot('1-positions');
+
+  // 2. 从岗位添加候选人，上传 PDF 简历，生成面试题
+  await page.click('[data-pos-add]');
   await page.waitForSelector('#drop');
+  check((await page.textContent('#headPos')).includes('智能体开发工程师 · 中级') && (await page.inputValue('#jdText')).includes('RAG'), 'candidate added from a position carries its level and requirements');
   await page.fill('#nameInput', '王小明');
   await page.click('#drop');
   await page.waitForFunction(() => document.querySelector('#resumeText')?.value.includes('王小明'));
@@ -179,6 +195,7 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   // 评估：改分、导出
   check((await page.locator('.dim-card').count()) === 5, 'five dimensions scored');
   check((await page.textContent('.verdict-panel')).includes('待定'), 'verdict shown');
+  check((await page.textContent('.pass-banner')).includes('未达到') && await page.locator('.need-mark').count() === 5, 'report judged against the position pass line');
   await page.click('[data-score="0"]');
   await page.waitForSelector('.dd-menu .dd-item.selected');
   await page.waitForTimeout(300);
@@ -203,7 +220,7 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   // 5. 面试记录列表
   await page.click('.nav [data-go=home]');
   await page.waitForSelector('.tr[data-open]');
-  check((await page.textContent('.table')).includes('王小明') && (await page.textContent('.table')).includes('已评估'), 'list shows evaluated interview');
+  check((await page.textContent('.table')).includes('王小明') && (await page.textContent('.table')).includes('已评估') && (await page.textContent('.table')).includes('未达标'), 'list shows evaluated interview with the pass result');
   await shot('6-home');
 
   // 6. 重新开始面试：打开记录，清空录音、转写和报告，简历和题目保留。

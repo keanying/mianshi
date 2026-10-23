@@ -186,3 +186,42 @@ test('report renders markdown and html', () => {
   assert.match(html, /待定/);
   assert.ok(!html.includes('<b>注意</b>'), 'notes are escaped');
 });
+
+test('positions: save, normalise level and pass lines, remove', () => {
+  const { createPositions } = require('../../lib/positions');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pos-'));
+  const positions = createPositions(dir);
+  const p = positions.save({ title: ' 智能体开发工程师 ', level: '高级', jd: 'RAG', pass: { average: 3.74, dims: { 专业度: 9 } } });
+  assert.strictEqual(p.title, '智能体开发工程师');
+  assert.strictEqual(p.pass.average, 3.5);
+  assert.strictEqual(p.pass.dims.专业度, 5);
+  assert.strictEqual(p.pass.dims.自驱力, 3, 'missing dimension falls back to the level default');
+  const q = positions.save({ ...p, level: '不存在', title: '改名' });
+  assert.strictEqual(q.id, p.id);
+  assert.strictEqual(q.level, '中级');
+  assert.strictEqual(positions.list().length, 1);
+  positions.remove(p.id);
+  assert.deepStrictEqual(positions.list(), []);
+});
+
+test('levels: pass judgement checks the average and every dimension', () => {
+  const { judge, defaultPass } = require('../../src/levels');
+  const pass = defaultPass('中级');
+  const ev = (scores) => ({ dimensions: ['专业度', '自驱力', '性格特质', '逻辑思维', '适应力'].map((name, k) => ({ name, score: scores[k] })) });
+  assert.strictEqual(judge(ev([3, 3, 3, 3, 3]), pass).passed, true);
+  const low = judge(ev([2.5, 4, 4, 4, 4]), pass);
+  assert.strictEqual(low.passed, false);
+  assert.deepStrictEqual(low.fails, [{ name: '专业度', score: 2.5, need: 3 }]);
+  assert.strictEqual(judge(ev([3, 2.5, 2.5, 3, 2.5]), pass).averageOk, false);
+  assert.strictEqual(judge(null, pass), null);
+});
+
+test('prompts carry the target level and pass line', () => {
+  const { defaultPass } = require('../../src/levels');
+  const q = prompts.questionMessages({ resume: '简历', position: '智能体开发', level: '资深', jd: '' })[1].content;
+  assert.match(q, /目标级别：资深/);
+  const e = prompts.evaluationMessages({ resume: '', position: 'x', level: '中级', pass: defaultPass('中级'), transcript: '转写' })[1].content;
+  assert.match(e, /达标线：五项平均不低于 3/);
+  assert.match(e, /专业度 3/);
+  assert.strictEqual(prompts.normalizeEvaluation({ overall: { level: '专家' } }).overall.level, '专家');
+});

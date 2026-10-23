@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { createStore } = require('./lib/store');
 const { createSettings } = require('./lib/settings');
+const { createPositions } = require('./lib/positions');
 const { PROVIDERS, chat, chatJSON } = require('./lib/llm');
 const { transcribe, synthesize, silentWav } = require('./lib/asr');
 const { readResume, SUPPORTED } = require('./lib/resume');
@@ -19,7 +20,7 @@ if (process.env.INTERVIEW_FAKE_MEDIA) {
   if (process.env.INTERVIEW_FAKE_AUDIO) app.commandLine.appendSwitch('use-file-for-fake-audio-capture', process.env.INTERVIEW_FAKE_AUDIO);
 }
 
-let win, store, settings;
+let win, store, settings, positions;
 
 function createWindow() {
   win = new BrowserWindow({
@@ -39,6 +40,7 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]) : null);
   store = createStore(app.getPath('userData'));
   settings = createSettings(app.getPath('userData'), safeStorage);
+  positions = createPositions(app.getPath('userData'));
   session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media'));
   // 线上面试时录制电脑声音：屏幕共享请求只取系统声音（loopback），画面在渲染进程里立即丢弃。
   session.defaultSession.setDisplayMediaRequestHandler((_req, cb) => {
@@ -93,10 +95,11 @@ handle('settings:testASR', async () => {
 handle('data:open', () => shell.openPath(app.getPath('userData')));
 
 handle('interviews:list', () => store.list());
-handle('interviews:create', (fields) => {
-  const s = settings.getPublic();
-  return store.create({ position: s.position, jd: s.jd, ...fields });
-});
+handle('interviews:create', (fields) => store.create(fields));
+
+handle('positions:list', () => positions.list());
+handle('positions:save', (p) => positions.save(p));
+handle('positions:remove', (id) => positions.remove(id));
 handle('interviews:get', (id) => store.get(id));
 handle('interviews:save', (interview) => store.save(interview));
 // 删除、重新开始前的确认在界面里做（应用内确认框）。
@@ -128,7 +131,7 @@ handle('plan:generate', async (id) => {
   const i = store.get(id), s = settings.getPublic();
   if (!i.resume.trim()) throw new Error('请先上传或粘贴简历。');
   const raw = await chatJSON(llmOptions({
-    messages: prompts.questionMessages({ resume: i.resume, position: i.position, jd: i.jd, count: s.questionCount }),
+    messages: prompts.questionMessages({ resume: i.resume, position: i.position, level: i.level, jd: i.jd, count: s.questionCount }),
     onDelta: progress(id, 'plan'),
   }));
   return store.save({ id, plan: prompts.normalizeQuestions(raw), status: i.status === 'draft' ? 'ready' : i.status });
@@ -287,7 +290,7 @@ handle('eval:generate', async (id) => {
   if (transcript.replace(/\s/g, '').length < 50) throw new Error('转写内容太少，没法评估。请先录音转写，或导入会议转写文本。');
   const questions = i.plan ? i.plan.sections.flatMap((s) => s.questions) : [];
   const raw = await chatJSON(llmOptions({
-    messages: prompts.evaluationMessages({ resume: i.resume, position: i.position, jd: i.jd, questions, transcript, notes: i.notes }),
+    messages: prompts.evaluationMessages({ resume: i.resume, position: i.position, level: i.level, pass: i.pass, jd: i.jd, questions, transcript, notes: i.notes }),
     temperature: 0.2,
     onDelta: progress(id, 'eval'),
   }));

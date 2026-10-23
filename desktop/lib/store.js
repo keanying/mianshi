@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { judge } = require('../src/levels');
 
 function createStore(root) {
   const base = path.join(root, 'interviews');
@@ -53,7 +54,8 @@ function createStore(root) {
           const i = get(d.name);
           const scores = i.evaluation?.dimensions?.map((x) => x.score) || [];
           return {
-            id: i.id, name: i.name, position: i.position, createdAt: i.createdAt, updatedAt: i.updatedAt, status: i.status,
+            id: i.id, name: i.name, position: i.position, positionId: i.positionId || '', level: i.level || '', createdAt: i.createdAt, updatedAt: i.updatedAt, status: i.status,
+            passed: judge(i.evaluation, i.pass)?.passed ?? null,
             verdict: i.evaluation?.overall?.verdict || '',
             average: scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length * 10) / 10 : null,
           };
