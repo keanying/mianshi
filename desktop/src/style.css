@@ -544,3 +544,57 @@ input.switch:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
  .verdict-panel{grid-template-columns:1fr}
 }
 .settings .switch-row input.switch{margin:0}
+
+/* ---------- 岗位 ---------- */
+.lv{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:5px;font-style:normal;font-size:11.5px;font-weight:600;white-space:nowrap}
+.lv1{background:#f1f5f9;color:#475569}.lv2{background:var(--accent-soft);color:var(--accent)}.lv3{background:var(--info-soft);color:var(--info)}.lv4{background:var(--d5s);color:var(--d5)}.lv5{background:#fef3c7;color:#b45309}
+.pass-chip{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:5px;font-style:normal;font-size:11.5px;font-weight:600}
+.pass-chip.ok{background:var(--good-soft);color:var(--good)}.pass-chip.bad{background:var(--bad-soft);color:var(--bad)}
+.pos-cell{display:flex;align-items:center;gap:8px;min-width:0}.pos-cell>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.home-pos{width:200px}.home-pos .dd-trigger{height:40px;background:var(--surface);border-color:var(--line)}
+.home-bar>.row{flex:1 1 auto;flex-wrap:nowrap}
+.pos-linked{display:flex;align-items:center;gap:8px;margin:-4px 0 16px;font-size:12.5px;color:var(--muted)}
+.pos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:20px}
+.pos-card{display:flex;flex-direction:column;padding:20px 22px 16px;border:1px solid var(--line);border-radius:14px;background:var(--surface);box-shadow:var(--shadow)}
+.pos-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.pos-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.pos-title h3{font-size:16px;font-weight:650}
+.pos-tools{display:flex;gap:2px;flex-shrink:0}
+.nav-icon{display:grid;place-items:center;width:30px;height:30px;border-radius:8px;color:var(--faint)}
+.nav-icon:hover{background:var(--line-2);color:var(--accent)}.nav-icon.danger:hover{background:var(--bad-soft);color:var(--bad)}
+.pos-jd{margin-top:8px;font-size:13px;line-height:1.7;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:44px}
+.pos-pass{margin-top:14px;padding:12px 14px;border-radius:10px;background:#f8f9fa}
+.pos-pass-head{display:flex;justify-content:space-between;margin-bottom:8px;font-size:12.5px;color:var(--muted)}.pos-pass-head b{color:var(--ink)}
+.pos-dim{display:grid;grid-template-columns:64px 1fr 28px;align-items:center;gap:10px;font-size:12.5px;color:var(--ink-2)}
+.pos-dim+.pos-dim{margin-top:6px}
+.pos-dim em{font-style:normal;text-align:right;font-weight:600}
+.pos-bar{height:6px;border-radius:3px;background:#e9ecef;overflow:hidden}.pos-bar b{display:block;height:100%;border-radius:3px;background:var(--accent)}
+.pos-bar.d1 b{background:var(--d1)}.pos-bar.d2 b{background:var(--d2)}.pos-bar.d3 b{background:var(--d3)}.pos-bar.d4 b{background:var(--d4)}.pos-bar.d5 b{background:var(--d5)}
+.pos-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px}
+.pos-foot .btn{height:34px;font-size:13.5px}
+/* 弹窗表单 */
+.modal.sheet{display:flex;flex-direction:column;max-width:560px;max-height:calc(100vh - 48px);padding:0;gap:0}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px 6px}
+.sheet-head h3{font-size:17px;font-weight:650}
+.sheet-head .t-close{width:30px;height:30px;border-radius:8px;font-size:20px;color:var(--faint)}.sheet-head .t-close:hover{background:var(--line-2)}
+.sheet-body{overflow-y:auto;padding:10px 22px 4px}
+.modal.sheet .modal-actions{margin:0;padding:14px 22px 18px;border-top:1px solid var(--line-2)}
+.level-seg{display:flex;width:100%}.level-seg label{flex:1;justify-content:center}
+.pass-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px}
+.pass-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13.5px;color:var(--ink-2)}
+.pass-row>span{display:flex;align-items:center;gap:6px}
+.pass-row .num{margin:0;max-width:140px;padding:3px}
+.pass-row .num input[type=number]{height:30px}
+.pass-row .num-btn{width:30px;height:30px}
+/* 评估：达标判定 */
+.pass-banner{display:flex;align-items:center;gap:14px;padding:14px 18px;border-radius:12px;border:1px solid}
+.pass-banner b{display:block;font-size:15px}.pass-banner span{font-size:13px}
+.pass-banner.ok{background:var(--good-soft);border-color:var(--good-line);color:var(--good)}
+.pass-banner.bad{background:var(--bad-soft);border-color:var(--bad-line);color:var(--bad)}
+.pass-banner.none{border:1px dashed var(--line);color:var(--muted);font-size:13px}
+.pb-ico{display:grid;place-items:center;flex-shrink:0;width:34px;height:34px;border-radius:50%;background:currentColor}
+.pb-ico svg.i{color:#fff;width:18px;height:18px}
+.dim-name{display:flex;align-items:center;gap:8px}
+.need{font-size:11.5px;color:var(--faint)}.need.bad{color:var(--bad);font-weight:600}
+.score-bar{position:relative;overflow:visible}
+.need-mark{position:absolute;top:-3px;bottom:-3px;width:2px;margin-left:-1px;border-radius:1px;background:var(--ink-2)}

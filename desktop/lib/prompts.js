@@ -2,6 +2,10 @@
 // 提示词：出题、改写、评估。所有给面试官看的文字都要求大白话。
 
 const DIMENSIONS = ['专业度', '自驱力', '性格特质', '逻辑思维', '适应力'];
+const { LEVELS, LEVEL_NAMES } = require('../src/levels');
+// 目标级别和达标线的说明，出题、评估时带给模型。
+const levelLine = (level) => (LEVELS[level] ? `目标级别：${level}（${LEVELS[level].desc}）\n` : '');
+const passLine = (pass) => (pass ? `达标线：五项平均不低于 ${pass.average}；各维度最低：${DIMENSIONS.map((d) => `${d} ${pass.dims?.[d] ?? '-'}`).join('、')}\n` : '');
 
 const DIMENSION_GUIDE = `五个评估维度：
 - 专业度：做过的事是否真懂，原理、取舍、踩过的坑能不能说清楚。
@@ -52,7 +56,7 @@ const QUESTION_SCHEMA = `只输出一个 JSON 对象，不要任何解释，格�
   ]
 }`;
 
-function questionMessages({ resume, position, jd, count = 20 }) {
+function questionMessages({ resume, position, level, jd, count = 20 }) {
   const basic = Math.max(3, Math.round(count * 0.25));
   const behavior = Math.max(3, Math.round(count * 0.2));
   const fromResume = Math.max(4, count - basic - behavior);
@@ -63,7 +67,7 @@ function questionMessages({ resume, position, jd, count = 20 }) {
     },
     {
       role: 'user',
-      content: `应聘岗位：${position || '未填写'}\n岗位要求：${jd || '未填写，按岗位名称推断'}\n\n候选人简历（可能由 PDF 转出，排版可能有点乱）：\n"""\n${resume}\n"""\n\n请准备大约 ${count} 道面试题：
+      content: `应聘岗位：${position || '未填写'}\n${levelLine(level)}岗位要求：${jd || '未填写，按岗位名称推断'}\n${level ? '题目难度和追问深度按目标级别把握：主要看对方是否达到这个级别，再留一两道题探一下是否高于这个级别。\n' : ''}\n候选人简历（可能由 PDF 转出，排版可能有点乱）：\n"""\n${resume}\n"""\n\n请准备大约 ${count} 道面试题：
 - 简历题约 ${fromResume} 道：按简历里的项目或经历分组，每组 2~4 道，先让对方讲清楚做了什么，再问具体做法和原因，最后问“如果条件变了怎么办”。
 - 基础题约 ${basic} 道：岗位必备的基础知识，结合岗位要求出，同样用大白话。
 - 做事方式题约 ${behavior} 道：考自驱力、性格特质、适应力，要求对方举真实例子。
@@ -90,7 +94,7 @@ const EVAL_SCHEMA = `只输出一个 JSON 对象，不要任何解释，格式�
     // 五个维度都要有，顺序：专业度、自驱力、性格特质、逻辑思维、适应力
   ],
   "overall": {
-    "level": "初级 | 中级 | 高级 | 资深",
+    "level": "初级 | 中级 | 高级 | 资深 | 专家",
     "verdict": "强烈推荐 | 推荐 | 待定 | 不推荐",
     "summary": "整体评价，3~5 句大白话"
   },
@@ -107,7 +111,7 @@ const SCORE_GUIDE = `打分标准（0~5）：
 - 转写是语音识别结果，可能有错别字。标了「面试官：」「候选人：」的按标注理解，只依据候选人说的话打分；没标注的根据上下文判断哪些是候选人说的。
 - 评价要具体，不要空话套话。`;
 
-function evaluationMessages({ resume, position, jd, questions, transcript, notes }) {
+function evaluationMessages({ resume, position, level, pass, jd, questions, transcript, notes }) {
   const askedList = (questions || []).filter((q) => q.asked).map((q) => `- ${q.q}`).join('\n');
   return [
     {
@@ -116,7 +120,7 @@ function evaluationMessages({ resume, position, jd, questions, transcript, notes
     },
     {
       role: 'user',
-      content: `应聘岗位：${position || '未填写'}\n岗位要求：${jd || '未填写'}\n\n简历（供对照，不能代替面试表现）：\n"""\n${(resume || '').slice(0, 8000)}\n"""\n\n${askedList ? `面试官标记为已问的题：\n${askedList}\n\n` : ''}${notes ? `面试官现场笔记：\n${notes}\n\n` : ''}面试转写：\n"""\n${transcript}\n"""\n\n请按五个维度评估这位候选人。\n\n${EVAL_SCHEMA}`,
+      content: `应聘岗位：${position || '未填写'}\n${levelLine(level)}${passLine(pass)}岗位要求：${jd || '未填写'}\n${level ? '按目标级别的要求来评：给分只看实际表现，不要为了凑达标线调高或调低；overall.level 写候选人实际达到的级别。\n' : ''}\n简历（供对照，不能代替面试表现）：\n"""\n${(resume || '').slice(0, 8000)}\n"""\n\n${askedList ? `面试官标记为已问的题：\n${askedList}\n\n` : ''}${notes ? `面试官现场笔记：\n${notes}\n\n` : ''}面试转写：\n"""\n${transcript}\n"""\n\n请按五个维度评估这位候选人。\n\n${EVAL_SCHEMA}`,
     },
   ];
 }
@@ -245,11 +249,10 @@ function normalizeEvaluation(raw) {
     return { name, score, reason: String(d.reason || '没有足够信息评估。'), evidence: (d.evidence || []).map(String), enough: d.enough !== false && byName.has(name) };
   });
   const verdicts = ['强烈推荐', '推荐', '待定', '不推荐'];
-  const levels = ['初级', '中级', '高级', '资深'];
   return {
     dimensions,
     overall: {
-      level: levels.includes(raw.overall?.level) ? raw.overall.level : '待定',
+      level: LEVEL_NAMES.includes(raw.overall?.level) ? raw.overall.level : '待定',
       verdict: verdicts.includes(raw.overall?.verdict) ? raw.overall.verdict : '待定',
       summary: String(raw.overall?.summary || ''),
     },

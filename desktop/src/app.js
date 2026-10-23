@@ -223,6 +223,9 @@ const ICON = {
   sparkle: '<path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',
   download: '<path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 20h16"/>',
   check: '<path d="m5 12 5 5 9-10"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+  briefcase: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18"/>',
 };
 const icon = (name) => `<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[name]}</svg>`;
 const STEPS = [['resume', '候选人'], ['audio', '音频调试'], ['plan', '面试题'], ['live', '面试中'], ['eval', '评估报告']];
@@ -261,8 +264,13 @@ async function go(view) {
   state.view = view;
   setNav();
   if (view === 'home') await renderHome();
+  if (view === 'positions') await renderPositions();
   if (view === 'settings') await renderSettings();
 }
+const loadPositions = async () => { state.positions = await call(api.positions.list()).catch(() => state.positions || []); return state.positions; };
+// 级别标签：五个级别各一个颜色
+const levelChip = (level) => (level ? `<i class="lv lv${Levels.LEVEL_NAMES.indexOf(level) + 1}">${esc(level)}</i>` : '');
+const passChip = (passed) => (passed == null ? '' : `<i class="pass-chip ${passed ? 'ok' : 'bad'}">${passed ? '达标' : '未达标'}</i>`);
 document.querySelector('.nav').addEventListener('click', (e) => { const b = e.target.closest('[data-go]'); if (b) go(b.dataset.go); });
 $('#newInterview').addEventListener('click', async () => {
   if (state.recState !== 'idle') { toast('正在录音，请先结束录音。', 'warn'); return; }
@@ -275,11 +283,13 @@ $('#newInterview').addEventListener('click', async () => {
 // ---------- 面试记录 ----------
 async function renderHome() {
   state.homeList = await call(api.interviews.list()).catch(() => []);
-  state.home = state.home || { q: '', status: '', page: 1 };
+  await loadPositions();
+  state.home = state.home || { q: '', status: '', pos: '', page: 1 };
   const s = state.settings, h = state.home;
   const setupHint = !s?.apiKeyHint ? `<div class="notice">还没有配置模型。先到 <button class="link" data-go-settings>设置</button> 里选择 GLM 或 DeepSeek 并填写 API Key。</div>` : '';
-  main.innerHTML = `<div class="page-scroll"><header class="page-head"><h1>面试记录</h1></header>
-   ${setupHint}<div class="home-bar"><label class="search">${icon('search')}<input id="homeSearch" placeholder="搜索姓名或岗位" value="${esc(h.q)}">${h.q ? '<button class="clear" id="clearSearch" title="清空">×</button>' : ''}</label>
+  main.innerHTML = `<div class="page-scroll"><header class="page-head"><h1>面试</h1></header>
+   ${setupHint}<div class="home-bar"><div class="row"><label class="search">${icon('search')}<input id="homeSearch" placeholder="搜索姓名或岗位" value="${esc(h.q)}">${h.q ? '<button class="clear" id="clearSearch" title="清空">×</button>' : ''}</label>
+    ${state.positions.length ? `<span class="home-pos"><select id="homePos" aria-label="按岗位筛选"><option value="">全部岗位</option>${state.positions.map((p) => `<option value="${p.id}" ${h.pos === p.id ? 'selected' : ''}>${esc(p.title)} · ${esc(p.level)}</option>`).join('')}</select></span>` : ''}</div>
     <div class="filters" id="homeFilters" role="tablist" aria-label="按状态筛选">${homeFiltersHTML()}</div></div>
    <div id="homeTable">${homeTableHTML()}</div></div>`;
   const refresh = () => { $('#homeFilters').innerHTML = homeFiltersHTML(); $('#homeTable').innerHTML = homeTableHTML(); };
@@ -291,29 +301,34 @@ async function renderHome() {
   });
   $('.search').addEventListener('click', (e) => { if (e.target.id === 'clearSearch') { h.q = ''; h.page = 1; $('#homeSearch').value = ''; e.target.remove(); refresh(); $('#homeSearch').focus(); } });
   $('#homeFilters').addEventListener('click', (e) => { const b = e.target.closest('[data-status]'); if (b) { h.status = b.dataset.status; h.page = 1; refresh(); } });
+  $('#homePos')?.addEventListener('change', (e) => { h.pos = e.target.value; h.page = 1; refresh(); });
 }
+// 搜索词和岗位筛选（状态筛选另算）
+const homeMatch = (i) => {
+  const h = state.home, q = h.q.trim().toLowerCase();
+  return (!h.pos || i.positionId === h.pos) && (!q || `${i.name} ${i.position}`.toLowerCase().includes(q));
+};
 // 状态筛选：每个状态后面带数量（数量按当前搜索词算）
 function homeFiltersHTML() {
-  const h = state.home, q = h.q.trim().toLowerCase();
-  const rows = (state.homeList || []).filter((i) => !q || `${i.name} ${i.position}`.toLowerCase().includes(q));
+  const h = state.home, rows = (state.homeList || []).filter(homeMatch);
   return [['', '全部'], ...Object.entries(STATUS)].map(([k, v]) => `<button role="tab" data-status="${k}" class="${h.status === k ? 'on' : ''}" aria-selected="${h.status === k}">${v}<i>${rows.filter((i) => !k || i.status === k).length}</i></button>`).join('');
 }
 function homeTableHTML() {
   const h = state.home, all = state.homeList || [], PAGE = 10;
-  if (!all.length) return `<div class="empty"><h3>还没有面试记录</h3><p>点击左上角「添加候选人」，填写简历和岗位开始。</p></div>`;
-  const q = h.q.trim().toLowerCase();
-  const rows = all.filter((i) => (!h.status || i.status === h.status) && (!q || `${i.name} ${i.position}`.toLowerCase().includes(q)));
+  if (!all.length) return `<div class="empty"><h3>还没有面试记录</h3><p>点击左上角「添加候选人」开始；建议先在「岗位」里设好岗位和达标线。</p></div>`;
+  const rows = all.filter((i) => (!h.status || i.status === h.status) && homeMatch(i));
   const pages = Math.max(1, Math.ceil(rows.length / PAGE));
   h.page = Math.min(h.page, pages);
   const shown = rows.slice((h.page - 1) * PAGE, h.page * PAGE);
   const avatar = (name) => `<i class="avatar a${([...(name || '?')].reduce((a, c) => a + c.charCodeAt(0), 0) % 5) + 1}">${esc((name || '?').slice(0, 1))}</i>`;
   return `<div class="table"><div class="tr th"><span>候选人</span><span>应聘岗位</span><span>面试时间</span><span>当前状态</span><span>评估结论 / 得分</span><span>操作</span></div>
-   ${shown.map((i) => `<div class="tr" data-open="${i.id}"><span class="who-cell">${avatar(i.name)}${esc(i.name || '未命名候选人')}</span><span>${esc(i.position || '—')}</span><span class="muted">${fmtDate(i.createdAt)}</span><span><i class="badge s-${i.status}">${STATUS[i.status] || i.status}</i></span><span class="verdict-cell">${i.verdict ? `<i class="verdict ${VERDICT_CLASS[i.verdict] || ''}">${esc(i.verdict)}</i><span class="score ${VERDICT_CLASS[i.verdict] || ''}">${i.average ?? ''}</span>` : '<span class="muted">—</span>'}</span><span><button class="trash" data-remove="${i.id}" title="删除">${icon('trash')}</button></span></div>`).join('')
+   ${shown.map((i) => `<div class="tr" data-open="${i.id}"><span class="who-cell">${avatar(i.name)}${esc(i.name || '未命名候选人')}</span><span class="pos-cell">${i.position ? `<span>${esc(i.position)}</span>${levelChip(i.level)}` : '<span class="muted">—</span>'}</span><span class="muted">${fmtDate(i.createdAt)}</span><span><i class="badge s-${i.status}">${STATUS[i.status] || i.status}</i></span><span class="verdict-cell">${i.verdict ? `<i class="verdict ${VERDICT_CLASS[i.verdict] || ''}">${esc(i.verdict)}</i><span class="score ${VERDICT_CLASS[i.verdict] || ''}">${i.average ?? ''}</span>${passChip(i.passed)}` : '<span class="muted">—</span>'}</span><span><button class="trash" data-remove="${i.id}" title="删除">${icon('trash')}</button></span></div>`).join('')
    || '<div class="tr"><span class="muted">没有符合条件的面试</span></div>'}
    <div class="table-foot"><span>显示第 ${rows.length ? (h.page - 1) * PAGE + 1 : 0}-${(h.page - 1) * PAGE + shown.length} 场面试，共 ${rows.length} 场</span><span class="row"><button class="btn" data-page="-1" ${h.page > 1 ? '' : 'disabled'}>上一页</button><button class="btn" data-page="1" ${h.page < pages ? '' : 'disabled'}>下一页</button></span></div></div>`;
 }
 main.addEventListener('click', async (e) => {
   if (e.target.closest('[data-go-settings]')) { go('settings'); return; }
+  if (e.target.closest('[data-go-positions]')) { e.preventDefault(); go('positions'); return; }
   const rm = e.target.closest('[data-remove]');
   if (rm) {
     e.stopPropagation();
@@ -327,6 +342,98 @@ main.addEventListener('click', async (e) => {
   const open = e.target.closest('[data-open]');
   if (open && state.view === 'home') openInterview(open.dataset.open);
 });
+
+// ---------- 岗位 ----------
+// 每个岗位：名称 + 级别（初级~专家）+ 岗位要求 + 达标线（平均分和每个维度的最低分）。添加候选人时选岗位，就把这些带进面试。
+async function renderPositions() {
+  const [list, interviews] = await Promise.all([loadPositions(), call(api.interviews.list()).catch(() => [])]);
+  const stat = (id) => {
+    const xs = interviews.filter((x) => x.positionId === id);
+    return { total: xs.length, judged: xs.filter((x) => x.passed != null).length, passed: xs.filter((x) => x.passed).length };
+  };
+  main.innerHTML = `<div class="page-scroll"><header class="page-head"><h1>岗位</h1><button class="btn primary" id="newPosition">${icon('plus')}新建岗位</button></header>
+   ${list.length ? `<div class="pos-grid">${list.map((p) => positionCardHTML(p, stat(p.id))).join('')}</div>`
+    : `<div class="empty"><h3>还没有岗位</h3><p>新建岗位：填写岗位名称、选择级别（初级 / 中级 / 高级 / 资深 / 专家），设置达标线。添加候选人时选择岗位，出题和评估都会按这个级别的要求来。</p><button class="btn primary" id="newPosition2">${icon('plus')}新建岗位</button></div>`}</div>`;
+  for (const b of main.querySelectorAll('#newPosition, #newPosition2')) b.addEventListener('click', () => editPosition());
+}
+function positionCardHTML(p, st) {
+  return `<article class="pos-card" data-pos="${p.id}">
+   <div class="pos-top"><div class="pos-title"><h3>${esc(p.title)}</h3>${levelChip(p.level)}</div>
+    <span class="pos-tools"><button class="nav-icon" data-pos-edit="${p.id}" title="编辑">${icon('edit')}</button><button class="nav-icon danger" data-pos-remove="${p.id}" title="删除">${icon('trash')}</button></span></div>
+   <p class="pos-jd">${p.jd ? esc(p.jd) : '<span class="muted">没有填写岗位要求</span>'}</p>
+   <div class="pos-pass"><div class="pos-pass-head"><span>达标线</span><b>平均 ≥ ${p.pass.average}</b></div>
+    ${Levels.DIMS.map((d) => `<div class="pos-dim"><span>${d}</span><i class="pos-bar ${DIM_COLORS[d]}"><b style="width:${p.pass.dims[d] / 5 * 100}%"></b></i><em>${p.pass.dims[d]}</em></div>`).join('')}</div>
+   <div class="pos-foot"><span class="muted small">${st.total ? `${st.total} 位候选人${st.judged ? ` · 达标 ${st.passed} / ${st.judged}` : ''}` : '还没有候选人'}</span><button class="btn outline" data-pos-add="${p.id}">${icon('plus')}添加候选人</button></div>
+  </article>`;
+}
+main.addEventListener('click', async (e) => {
+  if (state.view !== 'positions') return;
+  const edit = e.target.closest('[data-pos-edit]');
+  if (edit) { editPosition(state.positions.find((p) => p.id === edit.dataset.posEdit)); return; }
+  const rm = e.target.closest('[data-pos-remove]');
+  if (rm) {
+    const p = state.positions.find((x) => x.id === rm.dataset.posRemove);
+    if (!await ask({ title: `删除岗位「${p.title} · ${p.level}」？`, body: '已经面试过的候选人不受影响（他们的岗位和达标线已经单独保存）。', ok: '删除', danger: true })) return;
+    await call(api.positions.remove(p.id)).catch(ignoreHandled);
+    toast('岗位已删除');
+    renderPositions();
+    return;
+  }
+  const add = e.target.closest('[data-pos-add]');
+  if (add) {
+    const p = state.positions.find((x) => x.id === add.dataset.posAdd);
+    try {
+      const i = await call(api.interviews.create({ positionId: p.id, position: p.title, level: p.level, pass: p.pass, jd: p.jd }));
+      await openInterview(i.id, 'resume');
+    } catch (err) { ignoreHandled(err); }
+  }
+});
+// 新建 / 编辑岗位的弹窗。切换级别时填入该级别的默认达标线（之后可以逐项调整）。
+function editPosition(p) {
+  const draft = p ? structuredClone(p) : { title: '', level: '中级', jd: '', pass: Levels.defaultPass('中级') };
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-mask';
+  const scoreInput = (name, value, label) => `<label class="pass-row"><span>${label}</span><input type="number" name="${name}" min="0" max="5" step="0.5" value="${value}"></label>`;
+  wrap.innerHTML = `<form class="modal sheet" role="dialog" aria-modal="true" aria-labelledby="posTitle" autocomplete="off">
+    <div class="sheet-head"><h3 id="posTitle">${p ? '编辑岗位' : '新建岗位'}</h3><button type="button" class="t-close" data-cancel title="关闭">×</button></div>
+    <div class="sheet-body">
+     <label class="field"><span class="label">岗位名称</span><input name="title" value="${esc(draft.title)}" placeholder="例如：智能体开发工程师"></label>
+     <div class="field"><span class="label">级别</span>
+      <div class="modes level-seg" role="radiogroup" aria-label="级别">${Levels.LEVEL_NAMES.map((l) => `<label><input type="radio" name="level" value="${l}" ${draft.level === l ? 'checked' : ''}> ${l}</label>`).join('')}</div>
+      <p class="hint" id="levelDesc">${esc(Levels.LEVELS[draft.level].desc)}</p></div>
+     <label class="field"><span class="label">岗位要求<span>出题和评估都会参考</span></span><textarea name="jd" rows="5" placeholder="岗位职责、技术栈、加分项…">${esc(draft.jd)}</textarea></label>
+     <div class="field"><span class="label">达标线<span>评估后平均分和每个维度都不低于这里，才算达标</span></span>
+      <div class="pass-grid" id="passGrid">${scoreInput('average', draft.pass.average, '<b>五项平均</b>')}${Levels.DIMS.map((d) => scoreInput(`dim:${d}`, draft.pass.dims[d], `<i class="dot ${DIM_COLORS[d]}"></i>${d}`)).join('')}</div></div>
+    </div>
+    <div class="modal-actions"><button type="button" class="btn" data-cancel>取消</button><button type="submit" class="btn primary">${p ? '保存' : '创建岗位'}</button></div>
+   </form>`;
+  const form = wrap.querySelector('form'), f = form.elements;
+  const close = () => { document.removeEventListener('keydown', onKey, true); wrap.classList.add('out'); setTimeout(() => wrap.remove(), 120); };
+  const onKey = (e) => { if (e.key === 'Escape' && !document.querySelector('.dd-menu')) { e.preventDefault(); close(); } };
+  wrap.addEventListener('mousedown', (e) => { if (e.target === wrap) close(); });
+  wrap.addEventListener('click', (e) => { if (e.target.closest('[data-cancel]')) close(); });
+  form.addEventListener('change', (e) => {
+    if (e.target.name !== 'level') return;
+    const def = Levels.defaultPass(e.target.value);
+    f.average.value = def.average;
+    for (const d of Levels.DIMS) f[`dim:${d}`].value = def.dims[d];
+    $('#levelDesc', wrap).textContent = `${Levels.LEVELS[e.target.value].desc}。已填入「${e.target.value}」的默认达标线，可以逐项调整。`;
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!f.title.value.trim()) { f.title.focus(); toast('请填写岗位名称', 'warn'); return; }
+    const saved = { ...(p || {}), title: f.title.value, level: f.level.value, jd: f.jd.value.trim(), pass: { average: Number(f.average.value), dims: Object.fromEntries(Levels.DIMS.map((d) => [d, Number(f[`dim:${d}`].value)])) } };
+    try {
+      await call(api.positions.save(saved));
+      close();
+      toast(p ? '岗位已保存' : '岗位已创建');
+      if (state.view === 'positions') renderPositions();
+    } catch (err) { ignoreHandled(err); }
+  });
+  document.addEventListener('keydown', onKey, true);
+  document.body.appendChild(wrap);
+  f.title.focus();
+}
 
 // ---------- 设置 ----------
 async function renderSettings() {
@@ -356,9 +463,8 @@ async function renderSettings() {
     <p class="hint">DeepSeek 没有语音服务：用 DeepSeek 出题和评估时，转写和朗读仍需要一个智谱的 Key。不想录音的话，也可以面试后导入飞书妙记、腾讯会议等导出的转写文本。</p>
    </section>
    <section class="panel" ${pane('defaults')}><h2>出题默认值</h2>
-    <div class="two"><label>默认岗位<input name="position" value="${esc(s.position)}" placeholder="例如：AI 智能体开发工程师"></label>
-    <label>每场题目数量<input name="questionCount" type="number" min="8" max="40" value="${s.questionCount}"></label></div>
-    <label>岗位要求<textarea name="jd" rows="4" placeholder="可选。写上岗位职责和要求，出的基础题会更贴合">${esc(s.jd)}</textarea></label>
+    <label>每场题目数量<input name="questionCount" type="number" min="8" max="40" value="${s.questionCount}"></label>
+    <p class="hint">岗位名称、级别、岗位要求和达标线在左侧「岗位」里设置，添加候选人时选择岗位即可带入。</p>
    </section>
    <div ${pane('system')} class="sys">
     <section class="panel"><div class="panel-head"><h2>系统自检</h2><button class="btn" type="button" id="recheckHealth2">${icon('refresh')}重新检测</button></div><div id="sysHealth">${healthRowsHTML()}</div></section>
@@ -395,7 +501,7 @@ async function renderSettings() {
     provider: form.provider.value, baseURL: form.baseURL.value.trim(), model: form.model.value.trim(), apiKey: form.apiKey.value, thinking: !form.noThinking.checked,
     asrEnabled: form.asrEnabled.checked, asrUseChatKey: form.asrUseChatKey.checked, asrKey: form.asrKey.value,
     asrBaseURL: form.asrBaseURL.value.trim(), asrModel: form.asrModel.value.trim(), chunkSeconds: Number(form.chunkSeconds.value),
-    position: form.position.value.trim(), jd: form.jd.value.trim(), questionCount: Number(form.questionCount.value),
+    questionCount: Number(form.questionCount.value),
   });
   const saveAll = async () => { state.settings = await call(api.settings.save(collect())); renderSideFoot(); };
   form.addEventListener('submit', async (e) => { e.preventDefault(); try { await saveAll(); toast('设置已保存'); renderSettings(); runHealth(); } catch (err) { ignoreHandled(err); } });
@@ -470,15 +576,17 @@ async function openInterview(id, tab) {
   state.current = null;
   state.openQ = null;
   state.interview = await call(api.interviews.get(id));
+  await loadPositions();
   const i = state.interview;
   state.tab = tab || (i.evaluation ? 'eval' : i.status === 'done' ? 'eval' : i.plan ? 'plan' : 'resume');
   setNav();
   renderInterview();
 }
+const headPosText = (i) => (i.position ? `/ ${esc(i.position)}${i.level ? ` · ${esc(i.level)}` : ''}` : '');
 function renderInterview() {
   const i = state.interview;
   main.innerHTML = `<header class="iv-head">
-   <div class="iv-title"><button class="back" data-back title="返回面试记录">${icon('back')}</button><h1 id="headName">${esc(i.name || '未命名候选人')}</h1><span class="pos" id="headPos">${i.position ? `/ ${esc(i.position)}` : ''}</span><div class="iv-actions" id="ivActions"></div></div>
+   <div class="iv-title"><button class="back" data-back title="返回面试记录">${icon('back')}</button><h1 id="headName">${esc(i.name || '未命名候选人')}</h1><span class="pos" id="headPos">${headPosText(i)}</span><div class="iv-actions" id="ivActions"></div></div>
    <nav class="steps" id="steps"></nav>
   </header><section class="tab-body" id="tabBody"></section>`;
   renderTab();
@@ -560,17 +668,30 @@ function evalStreamHTML(e) {
 
 
 // 1 简历
+// 应聘岗位：有岗位时从下拉里选（带入名称、级别、要求和达标线），没有岗位时直接填名称。
+function positionPickerHTML(i) {
+  if (!state.positions.length) return `<label><span class="label">应聘岗位<button class="link small" data-go-positions>去设置岗位</button></span><input id="posInput" value="${esc(i.position)}" placeholder="例如：智能体开发工程师"></label>`;
+  return `<label><span class="label">应聘岗位<button class="link small" data-go-positions>管理岗位</button></span><select id="posSelect"><option value="">不关联岗位</option>${state.positions.map((p) => `<option value="${p.id}" ${i.positionId === p.id ? 'selected' : ''}>${esc(p.title)} · ${esc(p.level)}</option>`).join('')}</select></label>`;
+}
+// 关联岗位：把岗位当时的设置复制到这场面试（之后改岗位不会影响已经面过的人）。
+function linkPosition(i, p) {
+  const patch = p ? { positionId: p.id, position: p.title, level: p.level, pass: p.pass, jd: p.jd } : { positionId: '', level: '', pass: null };
+  Object.assign(i, patch);
+  saveField(patch);
+}
 function renderResume(body) {
   const i = state.interview;
   body.innerHTML = `<div class="tab-inner"><div class="grid-2">
    <div class="panel"><div class="card-title">${icon('file')}候选人简历</div>
     <div class="basic"><label><span class="label">候选人姓名</span><input id="nameInput" value="${esc(i.name)}" placeholder="例如：刘贵平"></label>
-     <label><span class="label">应聘岗位</span><input id="posInput" value="${esc(i.position)}" placeholder="例如：智能体开发工程师"></label></div>
+     ${positionPickerHTML(i)}</div>
+    ${!i.positionId && state.positions.length ? `<label class="field"><span class="label">岗位名称（不关联岗位时手动填写）</span><input id="posInput" value="${esc(i.position)}" placeholder="例如：智能体开发工程师"></label>` : ''}
+    ${i.positionId && i.pass ? `<p class="pos-linked">${levelChip(i.level)}<span>达标线：平均 ≥ ${i.pass.average}，${Levels.DIMS.map((d) => `${d} ≥ ${i.pass.dims[d]}`).join('、')}</span></p>` : ''}
     <div class="drop" id="drop">${icon('upload')}<strong>把简历拖到这里，或点击选择文件</strong><span>支持 PDF、TXT 格式 · 文件只在本机解析</span></div>
     <div class="parsed"><span>解析结果（可直接粘贴或修改）</span>${i.resumeName ? `<span class="file-chip">简历：${esc(i.resumeName)}</span>` : ''}</div>
     <textarea id="resumeText" rows="14" placeholder="上传后这里会显示读取到的简历文字">${esc(i.resume)}</textarea>
    </div>
-   <div class="panel"><div class="card-title">${icon('target')}岗位要求（可选）</div>
+   <div class="panel"><div class="card-title">${icon('target')}岗位要求${i.positionId ? '<span class="muted small" style="font-weight:400">从岗位带入，改动只对这场面试生效</span>' : '（可选）'}</div>
     <textarea id="jdText" rows="16" placeholder="写上岗位职责和要求，出的基础题会更贴合">${esc(i.jd)}</textarea>
     <p class="info-note">${icon('info')}<span>填好姓名、岗位和简历后，下一步先调试麦克风和耳机，再生成面试题。</span></p>
    </div></div></div>
@@ -592,7 +713,8 @@ function renderResume(body) {
   drop.addEventListener('dragleave', () => drop.classList.remove('over'));
   drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); const f = e.dataTransfer.files[0]; if (f) importFile(api.resume.pathOf(f)); });
   $('#nameInput').addEventListener('input', (e) => { i.name = e.target.value; saveField({ name: i.name }); $('#headName').textContent = i.name || '未命名候选人'; });
-  $('#posInput').addEventListener('input', (e) => { i.position = e.target.value; saveField({ position: i.position }); $('#headPos').textContent = i.position ? `/ ${i.position}` : ''; });
+  $('#posInput')?.addEventListener('input', (e) => { i.position = e.target.value; saveField({ position: i.position }); $('#headPos').innerHTML = headPosText(i); });
+  $('#posSelect')?.addEventListener('change', (e) => { linkPosition(i, state.positions.find((p) => p.id === e.target.value)); renderResume(body); $('#headPos').innerHTML = headPosText(i); });
   $('#resumeText').addEventListener('input', (e) => { i.resume = e.target.value; saveField({ resume: i.resume }); });
   $('#jdText').addEventListener('input', (e) => { i.jd = e.target.value; saveField({ jd: i.jd }); });
 }
@@ -1364,6 +1486,14 @@ async function retrySegments() {
 }
 
 // 4 评估
+// 达标判定横幅：按这场面试关联岗位的达标线（平均分 + 每个维度最低分）判断。
+function passBannerHTML(i, j) {
+  if (!j) return i.evaluation && !i.pass ? '<p class="pass-banner none">这场面试没有关联岗位，不判断是否达标。在「1 候选人」里选择岗位后即可按该岗位的达标线判断。</p>' : '';
+  const why = [...(j.averageOk ? [] : [`平均 ${j.average}（要求 ${i.pass.average}）`]), ...j.fails.map((f) => `${f.name} ${f.score}（要求 ${f.need}）`)];
+  return `<div class="pass-banner ${j.passed ? 'ok' : 'bad'}"><i class="pb-ico">${icon(j.passed ? 'check' : 'alert')}</i>
+   <div><b>${j.passed ? `达到「${esc(i.position)} · ${esc(i.level)}」的要求` : `未达到「${esc(i.position)} · ${esc(i.level)}」的要求`}</b>
+   <span>${j.passed ? `平均 ${j.average}（要求 ${i.pass.average}），五个维度都不低于达标线` : `差距：${esc(why.join('、'))}`}</span></div></div>`;
+}
 function renderEval(body) {
   const i = state.interview, e = i.evaluation;
   const textLen = transcriptText(i).replace(/\s/g, '').length;
@@ -1381,14 +1511,14 @@ function renderEval(body) {
     body.innerHTML = `<div class="tab-inner"><div class="eval">${textLen < 50 ? `<div class="empty"><h3>还没有足够的转写内容</h3><p>在「4 面试中」录音，或导入会议转写文本后再来评估。</p><button class="btn" data-tab-go="live">去录音 / 导入转写</button></div>`
       : `<div class="empty"><h3>还没有评估报告</h3><p>转写约 ${textLen} 字。点右上角「生成评估」，会按五个维度打分并给出结论。</p></div>`}</div></div>`;
   } else {
-    const avg = average(e);
-    body.innerHTML = `<div class="tab-inner"><div class="eval">${intro}
-     <div class="panel verdict-panel"><div><div class="verdict-line"><i class="verdict-big ${VERDICT_CLASS[e.overall.verdict] || ''}">${esc(e.overall.verdict)}</i><span class="avg">${avg}<span>/ 5</span></span>${e.overall.level ? `<span class="level-chip">${esc(e.overall.level)}</span>` : ''}</div>
+    const avg = average(e), j = Levels.judge(e, i.pass), need = (d) => i.pass?.dims?.[d.name];
+    body.innerHTML = `<div class="tab-inner"><div class="eval">${intro}${passBannerHTML(i, j)}
+     <div class="panel verdict-panel"><div><div class="verdict-line"><i class="verdict-big ${VERDICT_CLASS[e.overall.verdict] || ''}">${esc(e.overall.verdict)}</i><span class="avg">${avg}<span>/ 5</span></span>${e.overall.level ? `<span class="level-chip" title="模型根据面试表现判断的实际水平">实际水平 · ${esc(e.overall.level)}</span>` : ''}</div>
       ${summaryList(e.overall.summary)}</div>${radarSVG(e)}</div>
      <div class="dims">${e.dimensions.map((d, k) => `<div class="panel dim-card">
-      <div class="dim-top"><i class="dim ${DIM_COLORS[d.name] || ''}">${esc(d.name)}</i>
+      <div class="dim-top"><span class="dim-name"><i class="dim ${DIM_COLORS[d.name] || ''}">${esc(d.name)}</i>${need(d) != null ? `<small class="need ${d.score < need(d) ? 'bad' : ''}">达标线 ${need(d)}</small>` : ''}</span>
        <span class="score-pick"><button class="score-btn" data-score="${k}" aria-haspopup="listbox" title="点击调整分数">${d.score}${icon('chevD')}</button></span></div>
-      <div class="score-bar ${DIM_COLORS[d.name] || ''}"><i style="width:${d.score / 5 * 100}%"></i></div>
+      <div class="score-bar ${DIM_COLORS[d.name] || ''}"><i style="width:${d.score / 5 * 100}%"></i>${need(d) != null ? `<b class="need-mark" style="left:${need(d) / 5 * 100}%" title="达标线 ${need(d)}"></b>` : ''}</div>
       <p>${esc(d.reason)}</p>${d.evidence.length ? `<ul class="evidence">${d.evidence.map((x) => `<li>${esc(unquote(x))}</li>`).join('')}</ul>` : ''}
       ${!d.enough || d.manual ? `<div class="proof-row">${d.enough ? '' : '<span class="proof weak">证据不足</span>'}${d.manual ? '<span class="manual">已手动调整</span>' : ''}</div>` : ''}</div>`).join('')}${rhythmHTML(i)}</div>
      <div class="grid-3 three">

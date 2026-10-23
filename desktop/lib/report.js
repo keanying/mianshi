@@ -1,5 +1,14 @@
 'use strict';
 // 评估报告：生成 Markdown 和用于导出 PDF 的 HTML。
+const { judge } = require('../src/levels');
+// 达标判定一句话：「达标」或「未达标：专业度 2.5（要求 3）…」
+function passText(i) {
+  const j = judge(i.evaluation, i.pass);
+  if (!j) return '';
+  if (j.passed) return `达标（${i.level || ''}达标线：平均 ${i.pass.average}）`;
+  const why = [...(j.averageOk ? [] : [`平均 ${j.average}（要求 ${i.pass.average}）`]), ...j.fails.map((f) => `${f.name} ${f.score}（要求 ${f.need}）`)];
+  return `未达标：${why.join('、')}`;
+}
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const average = (e) => Math.round(e.dimensions.reduce((a, d) => a + d.score, 0) / e.dimensions.length * 10) / 10;
@@ -7,8 +16,9 @@ const dateOf = (iso) => (iso || '').slice(0, 10);
 
 function toMarkdown(i) {
   const e = i.evaluation;
-  const lines = [`# 面试评估：${i.name || '未命名候选人'}`, '', `- 岗位：${i.position || '—'}`, `- 日期：${dateOf(i.createdAt)}`];
+  const lines = [`# 面试评估：${i.name || '未命名候选人'}`, '', `- 岗位：${i.position || '—'}${i.level ? ` · ${i.level}` : ''}`, `- 日期：${dateOf(i.createdAt)}`];
   if (e) {
+    if (passText(i)) lines.push(`- 达标：${passText(i)}`);
     lines.push(`- 结论：**${e.overall.verdict}** · ${e.overall.level} · 平均 ${average(e)} / 5`, '', '## 整体评价', '', e.overall.summary, '', '## 五维评分', '', '| 维度 | 分数 | 理由 |', '|---|---|---|');
     for (const d of e.dimensions) lines.push(`| ${d.name} | ${d.score}${d.enough ? '' : '（证据不足）'} | ${d.reason.replace(/\|/g, '/')} |`);
     for (const d of e.dimensions) if (d.evidence.length) lines.push('', `**${d.name}的依据**`, ...d.evidence.map((x) => `- ${x}`));
@@ -31,8 +41,8 @@ table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #eef1f5;
 .ev{color:#475569;font-size:12px;margin:4px 0 0;padding-left:16px}.muted{color:#94a3b8}.cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}
 </style></head><body>
 <h1>面试评估：${esc(i.name || '未命名候选人')}</h1>
-<p class="meta">${esc(i.position || '岗位未填写')} · ${esc(dateOf(i.createdAt))}</p>
-${e ? `<p><span class="verdict">${esc(e.overall.verdict)}</span>${esc(e.overall.level)} · 平均 ${average(e)} / 5</p>
+<p class="meta">${esc(i.position || '岗位未填写')}${i.level ? ` · ${esc(i.level)}` : ''} · ${esc(dateOf(i.createdAt))}</p>
+${e ? `<p><span class="verdict">${esc(e.overall.verdict)}</span>${esc(e.overall.level)} · 平均 ${average(e)} / 5</p>${passText(i) ? `<p><b>${esc(passText(i))}</b></p>` : ''}
 <p>${esc(e.overall.summary)}</p>
 <h2>五维评分</h2><table><tr><th style="width:90px">维度</th><th style="width:150px">分数</th><th>理由与依据</th></tr>
 ${e.dimensions.map((d) => `<tr><td><b>${esc(d.name)}</b></td><td>${bar(d.score)}${d.score}${d.enough ? '' : ' <span class="muted">证据不足</span>'}</td><td>${esc(d.reason)}${d.evidence.length ? `<ul class="ev">${d.evidence.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</td></tr>`).join('')}
