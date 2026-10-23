@@ -553,11 +553,10 @@ function editPosition(p) {
     <div class="sheet-body">
      <label class="field"><span class="label">岗位名称</span><input name="title" value="${esc(draft.title)}" placeholder="例如：智能体开发工程师"></label>
      <div class="field"><span class="label">级别</span>
-      <div class="modes level-seg" role="radiogroup" aria-label="级别">${Levels.LEVEL_NAMES.map((l) => `<label><input type="radio" name="level" value="${l}" ${draft.level === l ? 'checked' : ''}> ${l}</label>`).join('')}</div>
-      <p class="hint" id="levelDesc">${esc(Levels.LEVELS[draft.level].desc)}</p></div>
-     <label class="field"><span class="label">岗位要求（职位画像）<span>出题和评估都会参考</span></span><textarea name="jd" rows="5" placeholder="岗位职责、要具备的能力、加分项…">${esc(draft.jd)}</textarea></label>
-     <label class="field"><span class="label">技术栈<span>会专门出语言和框架的题</span></span><input name="skills" value="${esc(draft.skills || '')}" placeholder="例如：Python、FastAPI、LangChain、LangGraph、Milvus"></label>
-     <div class="field"><span class="label">达标线<span>评估后平均分和每个维度都不低于这里，才算达标</span></span>
+      <div class="modes level-seg" role="radiogroup" aria-label="级别">${Levels.LEVEL_NAMES.map((l) => `<label><input type="radio" name="level" value="${l}" ${draft.level === l ? 'checked' : ''}> ${l}</label>`).join('')}</div></div>
+     <label class="field"><span class="label">岗位要求（职位画像）</span><textarea name="jd" rows="5" placeholder="岗位职责、要具备的能力、加分项…">${esc(draft.jd)}</textarea></label>
+     <label class="field"><span class="label">技术栈</span><input name="skills" value="${esc(draft.skills || '')}" placeholder="例如：Python、FastAPI、LangChain、LangGraph、Milvus"></label>
+     <div class="field"><span class="label">达标线</span>
       <div class="pass-grid" id="passGrid">${scoreInput('average', draft.pass.average, '<b>五项平均</b>')}${Levels.DIMS.map((d) => scoreInput(`dim:${d}`, draft.pass.dims[d], `<i class="dot ${DIM_COLORS[d]}"></i>${d}`)).join('')}</div></div>
     </div>
     <div class="modal-actions"><button type="button" class="btn" data-cancel>取消</button><button type="submit" class="btn primary">${p ? '保存' : '创建岗位'}</button></div>
@@ -572,7 +571,6 @@ function editPosition(p) {
     const def = Levels.defaultPass(e.target.value);
     f.average.value = def.average;
     for (const d of Levels.DIMS) f[`dim:${d}`].value = def.dims[d];
-    $('#levelDesc', wrap).textContent = `${Levels.LEVELS[e.target.value].desc}。已填入「${e.target.value}」的默认达标线，可以逐项调整。`;
   });
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -596,7 +594,7 @@ async function renderSettings() {
   const P = state.info.providers;
   const tab = state.settingsTab || 'llm';
   const pane = (k) => `data-pane="${k}" ${tab === k ? '' : 'hidden'}`;
-  main.innerHTML = `<div class="page-scroll"><header class="page-head"><div><h1>设置</h1><p>配置大模型和语音服务。简历、转写内容会发送给你选择的模型服务商处理。</p></div></header>
+  main.innerHTML = `<div class="page-scroll"><header class="page-head"><div><h1>设置</h1></div></header>
   <nav class="tabs" role="tablist" id="settingsTabs">${SETTINGS_TABS.map(([k, label, hk]) => `<button type="button" role="tab" data-stab="${k}" class="${tab === k ? 'on' : ''}" aria-selected="${tab === k}">${label}${hk ? `<i class="tdot ${health[hk].status}" data-hk="${hk}"></i>` : ''}</button>`).join('')}</nav>
   <form class="settings" id="settingsForm" autocomplete="off">
    <section class="panel" ${pane('llm')}><h2>出题和评估用的大模型</h2>
@@ -604,34 +602,31 @@ async function renderSettings() {
     <label>模型<input name="model" list="modelList" value="${esc(s.model)}"><datalist id="modelList">${(P[s.provider]?.models || []).map((m) => `<option value="${m}">`).join('')}</datalist></label></div>
     <label>接口地址<input name="baseURL" value="${esc(s.baseURL)}" placeholder="https://…"></label>
     <label>API Key<input name="apiKey" type="password" placeholder="${esc(s.apiKeyHint || '粘贴 API Key')}"></label>
-    <label class="switch-row"><span><b>关闭深度思考</b><small>出题、评估更快更省；个别不支持关闭的模型会自动照常调用</small></span><input type="checkbox" class="switch" role="switch" name="noThinking" ${s.thinking ? '' : 'checked'}></label>
+    <label class="switch-row"><span><b>关闭深度思考</b></span><input type="checkbox" class="switch" role="switch" name="noThinking" ${s.thinking ? '' : 'checked'}></label>
     <div class="row"><button class="btn" type="button" id="testLLM">测试连接</button><span class="muted" id="testLLMResult"></span></div>
    </section>
    <section class="panel" ${pane('asr')}><h2>语音转写与朗读（智谱）</h2>
-    <label class="switch-row"><span><b>录音时自动转写</b><small>按说话停顿切段、边录边转；关掉的话可以面试后导入会议软件的转写</small></span><input type="checkbox" class="switch" role="switch" name="asrEnabled" ${s.asrEnabled ? 'checked' : ''}></label>
-    <label class="switch-row"><span><b>与「文本大模型」共用 API Key</b><small>文本大模型选的是智谱时打开；用 DeepSeek 时关掉，另填智谱的 Key</small></span><input type="checkbox" class="switch" role="switch" name="asrUseChatKey" ${s.asrUseChatKey ? 'checked' : ''}></label>
+    <label class="switch-row"><span><b>录音时自动转写</b></span><input type="checkbox" class="switch" role="switch" name="asrEnabled" ${s.asrEnabled ? 'checked' : ''}></label>
+    <label class="switch-row"><span><b>与「文本大模型」共用 API Key</b></span><input type="checkbox" class="switch" role="switch" name="asrUseChatKey" ${s.asrUseChatKey ? 'checked' : ''}></label>
     <label class="asr-key" ${s.asrUseChatKey ? 'hidden' : ''}>智谱 API Key<input name="asrKey" type="password" placeholder="${esc(s.asrKeyHint || '粘贴智谱 API Key')}"></label>
     <div class="two"><label>接口地址<input name="asrBaseURL" value="${esc(s.asrBaseURL)}"></label>
     <label>转写模型<input name="asrModel" list="asrModels" value="${esc(s.asrModel)}"><datalist id="asrModels"><option value="glm-asr-2512"><option value="glm-asr"></datalist></label></div>
     <label>每段最长（秒）<input name="chunkSeconds" type="number" min="10" max="28" value="${s.chunkSeconds}"></label>
     <div class="row"><button class="btn" type="button" id="testASR">测试转写</button><span class="muted" id="testASRResult"></span></div>
-    <p class="hint">DeepSeek 没有语音服务：用 DeepSeek 出题和评估时，转写和朗读仍需要一个智谱的 Key。不想录音的话，也可以面试后导入飞书妙记、腾讯会议等导出的转写文本。</p>
    </section>
    <section class="panel" ${pane('defaults')}><h2>出题默认值</h2>
     <label>每场题目数量<input name="questionCount" type="number" min="8" max="40" value="${s.questionCount}"></label>
-    <p class="hint">岗位名称、级别、岗位要求和达标线在左侧「岗位」里设置，添加候选人时选择岗位即可带入。</p>
    </section>
    <div ${pane('system')} class="sys">
     <section class="panel"><div class="panel-head"><h2>系统自检</h2><button class="btn" type="button" id="recheckHealth2">${icon('refresh')}重新检测</button></div><div id="sysHealth">${healthRowsHTML()}</div></section>
     <section class="panel"><h2>本机数据</h2>
      <div class="kv-row"><span>数据目录</span><button class="link" type="button" id="openData">${esc(state.info.dataDir)}</button></div>
-     <div class="kv-row"><span>API Key 保存方式</span><b>${s.encrypted ? '系统钥匙串加密保存' : '本机保存（系统不支持钥匙串加密）'}</b></div>
-     <p class="hint">简历、题目、录音、转写和评估都只保存在这台电脑上；生成题目、转写和评估时，相关内容会发送给你选择的模型服务商。录音前请告知候选人并征得同意。</p></section>
+     <div class="kv-row"><span>API Key 保存方式</span><b>${s.encrypted ? '系统钥匙串加密保存' : '本机保存（系统不支持钥匙串加密）'}</b></div></section>
     <section class="panel"><h2>关于</h2>
      <div class="kv-row"><span>版本</span><b>面试助手 ${esc(state.info.version)}</b></div>
      <div class="kv-row"><span>系统</span><b>${{ win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[state.info.platform] || esc(state.info.platform)}</b></div></section>
    </div>
-   <div class="settings-foot" ${tab === 'system' ? 'hidden' : ''}><p class="hint">切换标签不会丢失未保存的修改，最后点一次保存即可。</p><button class="btn primary big" type="submit">保存设置</button></div>
+   <div class="settings-foot" ${tab === 'system' ? 'hidden' : ''}><span></span><button class="btn primary big" type="submit">保存设置</button></div>
   </form></div>`;
   $('#settingsTabs').addEventListener('click', (e) => {
     const b = e.target.closest('[data-stab]');
@@ -857,10 +852,9 @@ function renderResume(body) {
     <div class="parsed"><span>解析结果（可直接粘贴或修改）</span>${i.resumeName ? `<span class="file-chip">简历：${esc(i.resumeName)}</span>` : ''}</div>
     <textarea id="resumeText" rows="14" placeholder="上传后这里会显示读取到的简历文字">${esc(i.resume)}</textarea>
    </div>
-   <div class="panel"><div class="card-title">${icon('target')}岗位要求${i.positionId ? '<span class="muted small" style="font-weight:400">从岗位带入，改动只对这场面试生效</span>' : '（可选）'}</div>
+   <div class="panel"><div class="card-title">${icon('target')}岗位要求${i.positionId ? '' : '（可选）'}</div>
     <textarea id="jdText" rows="13" placeholder="岗位职责、要具备的能力，出题会围绕这些来问">${esc(i.jd)}</textarea>
-    <label class="field" style="margin-top:14px"><span class="label">技术栈<span>会专门出语言和框架的题</span></span><input id="skillsInput" value="${esc(i.skills || '')}" placeholder="例如：Python、FastAPI、LangChain"></label>
-    <p class="info-note">${icon('info')}<span>填好姓名、岗位和简历后，下一步先调试麦克风和耳机，再生成面试题。</span></p>
+    <label class="field" style="margin-top:14px"><span class="label">技术栈</span><input id="skillsInput" value="${esc(i.skills || '')}" placeholder="例如：Python、FastAPI、LangChain"></label>
    </div></div></div>
    <div class="action-bar"><span class="muted small">${i.resume.trim() ? `简历约 ${i.resume.replace(/\s/g, '').length} 字` : '还没有简历内容'}</span><button class="btn primary big" data-tab-go="audio">下一步：调试音频 ${icon('chevR')}</button></div>`;
   const drop = $('#drop');
@@ -928,7 +922,7 @@ function renderPlan(body) {
   const i = state.interview, p = i.plan;
   if (state.busy.plan) {
     const data = parsePartialJSON(state.stream.plan);
-    body.innerHTML = `<div class="tab-inner"><div class="plan streaming-plan"><div class="stream-head">${progressText('plan')}<span class="muted">题目会一道道出现，生成完可以「换个问法」和标记已问</span></div><div id="stream-plan">${data ? planStreamHTML(data) : '<p class="muted stream-wait">正在读简历、准备题目…</p>'}</div></div></div>`;
+    body.innerHTML = `<div class="tab-inner"><div class="plan streaming-plan"><div class="stream-head">${progressText('plan')}</div><div id="stream-plan">${data ? planStreamHTML(data) : '<p class="muted stream-wait">正在读简历、准备题目…</p>'}</div></div></div>`;
     return;
   }
   if (!p) {
@@ -945,7 +939,7 @@ function renderPlan(body) {
     <div class="grid-2"><div><h4>${icon('target')}值得深挖</h4><ul>${p.candidate.highlights.map((x) => `<li>${esc(x)}</li>`).join('') || '<li class="muted">—</li>'}</ul></div>
     <div><h4>${icon('alert')}需要核实</h4><ul>${verify || '<li class="muted">—</li>'}</ul></div></div></div>
    <div class="plan-bar"><span class="count"><span>共 <b>${qs.length}</b> 道题</span><span>已问 <b>${asked}</b></span><span class="kinds">${kindCounts(p)}</span></span><span class="row"><button class="btn" id="genPlan">${icon('refresh')}重新生成</button><button class="btn primary" data-tab-go="live">开始面试 ${icon('chevR')}</button></span></div>
-   ${p.sections.map((s) => `<section class="section ${s.source === 'gate' ? 'gate' : ''}"><h2>${sectionHead(s)}</h2>${s.source === 'gate' ? '<p class="gate-hint">先问这几道：最难、最能看出是否达到目标级别，前 15 分钟答不好基本可以判断不合适。</p>' : ''}${s.questions.map((q) => questionCard(q)).join('')}</section>`).join('')}
+   ${p.sections.map((s) => `<section class="section ${s.source === 'gate' ? 'gate' : ''}"><h2>${sectionHead(s)}</h2>${s.questions.map((q) => questionCard(q)).join('')}</section>`).join('')}
   </div></div>`;
   $('#genPlan').addEventListener('click', generatePlan);
 }
@@ -1233,7 +1227,6 @@ function audioHTML() {
    <div class="seg"><div class="modes" role="radiogroup" aria-label="面试方式">
     <label><input type="radio" name="recordMode" value="offline" ${online ? '' : 'checked'}> 面对面</label>
     <label><input type="radio" name="recordMode" value="online" ${online ? 'checked' : ''}> 线上（戴耳机）</label></div></div>
-   <p class="mode-hint">${online ? '线上：你的麦克风 = 面试官；会议软件里对方的声音单独录一路 = 候选人。' : '面对面：一个麦克风录下双方，结束后由模型区分面试官和候选人。'}</p>
    <div class="audio-grid">
     <section class="panel side-card">
      <div class="card-title">${icon('mic')}面试官（我）<span class="speak" id="speak-mic">○ 安静</span></div>
@@ -1242,7 +1235,6 @@ function audioHTML() {
      <div class="label">请朗读下面这句话</div>
      <p class="read-aloud">「${READ_ALOUD}」</p>
      <button class="btn wide ${check.testing.mic ? '' : 'outline'}" id="testMic" ${check.listeners.mic ? '' : 'disabled'}>${check.testing.mic ? '停止测试' : '开始测试'}</button>
-     ${check.testing.mic ? '<p class="hint subtle-link">请读上面这句话，读完停一下就会自动转写</p>' : ''}
      ${linesHTML(check.lines.mic, '点「开始测试」，读一遍上面的句子')}
     </section>
     <section class="panel side-card">
@@ -1254,7 +1246,7 @@ function audioHTML() {
      ${online ? `<label class="field"><span class="label">声音来源</span><select id="candSelect"><option value="system" ${s.candidateSource === 'system' ? 'selected' : ''}>电脑声音（推荐：会议软件里对方的声音）</option>${candidateInputs().length ? `<optgroup label="其他输入设备（装了虚拟声卡 / 立体声混音才需要）">${candidateInputs().map((d) => `<option value="${esc(d.deviceId)}" ${d.deviceId === s.candidateSource ? 'selected' : ''}>${esc(d.label)}</option>`).join('')}</optgroup>` : ''}</select></label>
       ${remoteDeskWarning()}
       ${check.listeners.cand ? '<div class="field"><span class="label">声音来源音量</span><div class="meter"><i id="meter-cand"></i></div></div>' : ''}${note(check.note.candErr)}`
-     : '<p class="hint" style="margin:0 0 16px">面对面：候选人和你共用左边的麦克风。</p>'}
+     : ''}
      <button class="btn wide ${check.sim ? '' : 'outline'}" id="simCand" ${check.sim ? 'disabled' : ''}>${check.sim ? '测试中…' : '开始测试（系统将播放样例并识别）'}</button>
      ${online && check.listeners.cand ? `<button class="link subtle-link" id="testCand">${check.testing.cand ? '停止真人测试' : '对方已在会议里？改用真人测试'}</button>` : ''}
      ${note(check.note.sim)}
@@ -1390,7 +1382,7 @@ function copilotHTML(q) {
   const LEVEL = { 好: 'good', 一般: 'mid', 弱: 'weak' };
   const row = (label, value, note) => (value ? `<div class="cp-row"><span class="cp-label">${label}</span><i class="lvl ${JUDGE_CLASS[value] || 'mid'}">${esc(value)}</i><span class="cp-note">${esc(note || '')}</span></div>` : '');
   return `<div class="copilot">
-    <div class="copilot-head"><b>${icon('sparkle')}AI 副驾</b><span class="muted">${busy ? '正在看候选人的回答…' : r ? `点评于 ${new Date(r.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}，回答继续变长会自动更新` : '候选人答完会自动点评，也可以随时点右边'}</span>
+    <div class="copilot-head"><b>${icon('sparkle')}AI 副驾</b><span class="muted">${busy ? '正在看候选人的回答…' : r ? `点评于 ${new Date(r.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : ''}</span>
      <span class="right-side">${r ? `<i class="lvl ${LEVEL[r.level] || 'mid'}">${esc(r.level)}</i>` : ''}<button class="link" data-review="${q.id}" ${busy ? 'disabled' : ''}>${r ? '重新点评' : '看看答得怎样'}</button></span></div>
     ${r ? `<p class="copilot-comment">${esc(r.comment)}</p>
      ${r.sound || r.credible || r.fit ? `<div class="cp-rows">${row('合理性', r.sound, r.soundNote)}${row('可信度', r.credible, r.credibleNote)}${row(lv ? `对照${esc(lv)}` : '级别', r.fit ? `${r.fit}${lv || ''}` : '', r.fitNote)}</div>` : ''}
@@ -1424,7 +1416,7 @@ function currentHTML(qs) {
   // 一张卡片从上到下：题目 → 回答要点 → 追问 → 判断信号 → AI 副驾 → 操作；每块同样的留白和字号。题号、分组、维度看左边的题目列表。
   return `<article class="current" data-q="${cur.id}">
     <header class="cur-head"><h3>${esc(cur.q)}</h3></header>
-    <section class="cur-block"><div class="mini-label">回答要点<span>点一下标记答到了</span></div>
+    <section class="cur-block"><div class="mini-label">回答要点</div>
      <ul class="points ${cur.review ? 'reviewed' : ''}">${cur.points.map((p, n) => `<li class="${hit(n) ? 'hit' : cur.review || cur.marks?.[n] === false ? 'miss' : ''}" data-mark="${n}">${esc(p)}</li>`).join('')}</ul></section>
     ${cur.follow ? `<section class="cur-block"><div class="mini-label">追问</div><p class="follow-line">${esc(cur.follow)}</p></section>` : ''}
     ${cur.good || cur.bad ? `<section class="cur-block cur-signals">${cur.good ? `<p><b class="good">好的表现</b><span>${esc(cur.good)}</span></p>` : ''}${cur.bad ? `<p><b class="bad">需要警惕</b><span>${esc(cur.bad)}</span></p>` : ''}</section>` : ''}
@@ -1639,7 +1631,7 @@ async function importTranscript() {
 function editTranscript() {
   const col = $('#transcriptCol');
   col.innerHTML = `<div class="col-head">编辑转写<span class="tools"><button class="link" id="cancelEdit">取消</button><button class="link" id="saveEdit"><b>保存</b></button></span></div>
-   <textarea id="transcriptEditor">${esc(transcriptText(state.interview))}</textarea><p class="hint" style="margin:0 16px 14px">可以直接粘贴会议软件导出的文字。保存后按整段文本处理。</p>`;
+   <textarea id="transcriptEditor">${esc(transcriptText(state.interview))}</textarea>`;
   $('#cancelEdit').addEventListener('click', () => renderLive($('#tabBody')));
   $('#saveEdit').addEventListener('click', async () => {
     const text = $('#transcriptEditor').value.trim();
@@ -1689,7 +1681,7 @@ async function retrySegments() {
 // 4 评估
 // 达标判定横幅：按这场面试关联岗位的达标线（平均分 + 每个维度最低分）判断。
 function passBannerHTML(i, j) {
-  if (!j) return i.evaluation && !i.pass ? '<p class="pass-banner none">这场面试没有关联岗位，不判断是否达标。在「1 候选人」里选择岗位后即可按该岗位的达标线判断。</p>' : '';
+  if (!j) return '';
   const why = [...(j.averageOk ? [] : [`平均 ${j.average}（要求 ${i.pass.average}）`]), ...j.fails.map((f) => `${f.name} ${f.score}（要求 ${f.need}）`)];
   return `<div class="pass-banner ${j.passed ? 'ok' : 'bad'}"><i class="pb-ico">${icon(j.passed ? 'check' : 'alert')}</i>
    <div><b>${j.passed ? `达到「${esc(i.position)} · ${esc(i.level)}」的要求` : `未达到「${esc(i.position)} · ${esc(i.level)}」的要求`}</b>
@@ -1703,7 +1695,7 @@ function renderEval(body) {
     actions.innerHTML = `${state.busy.eval ? progressText('eval') : ''}${e ? `<button class="btn" id="exportMd">${icon('download')}导出 Markdown</button><button class="btn" id="exportPdf">${icon('download')}导出 PDF</button>` : ''}
      <button class="btn ${e ? 'primary' : 'primary'}" id="genEval" ${state.busy.eval || textLen < 50 ? 'disabled' : ''}>${icon(e ? 'refresh' : 'sparkle')}${e ? '重新评估' : '生成评估'}</button>`;
   }
-  const intro = `<p class="muted small">根据转写${i.notes ? '和现场笔记' : ''}评估专业度、自驱力、性格特质、逻辑思维、适应力，每项 0~5 分 · 转写约 ${textLen} 字</p>`;
+  const intro = '';
   if (state.busy.eval) {
     const data = parsePartialJSON(state.stream.eval);
     const wait = state.evalStage === 'speakers' ? '正在区分面试官和候选人的话…' : '正在阅读转写，马上开始给分…';
