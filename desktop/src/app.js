@@ -233,7 +233,8 @@ const ICON = {
   download: '<path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 20h16"/>',
   check: '<path d="m5 12 5 5 9-10"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
-  pulse: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  // 系统自检的心电图：底下一条淡线，上面一段亮线沿着它扫过去（动画见 style.css .health-btn）
+  pulse: '<path class="ecg-base" pathLength="100" d="M3 12h4l3-8 4 16 3-8h4"/><path class="ecg-trace" pathLength="100" d="M3 12h4l3-8 4 16 3-8h4"/>',
   users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M21.5 20a6.5 6.5 0 0 0-4-6"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   clipboard: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 11h6M9 15h4"/>',
