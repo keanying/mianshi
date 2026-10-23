@@ -143,6 +143,7 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await page.waitForSelector('.section .q:not(.streaming)', { timeout: 30000 });
   check((await page.locator('.section .q').count()) === 4, 'plan shows 4 questions in sections');
   check((await page.textContent('.plan')).includes('竞品分析平台'), 'plan shows generated plain-language question');
+  check(await page.locator('.section.gate').count() === 1 && (await page.textContent('.plan-bar')).includes('门槛题 2 道'), 'plan puts the hardest gate questions first');
   await page.locator('[data-rewrite]').nth(1).click();
   await page.waitForFunction(() => document.body.textContent.includes('换个说法：报告是怎么生成的？'));
   check(true, 'rewrite replaces a question');
@@ -168,6 +169,7 @@ const check = (ok, message) => { if (!ok) failures.push(message); console.log(`$
   await page.click('#liveQuestions [data-review]');
   await page.waitForSelector('.copilot-comment', { timeout: 30000 });
   check((await page.locator('.points.reviewed li.hit').count()) === 1 && (await page.textContent('.copilot-follow')).includes('哪些章节'), 'copilot: answer reviewed with covered points and a follow-up');
+  check((await page.textContent('.cp-rows')).includes('存疑') && (await page.textContent('.cp-rows')).includes('低于中级') && (await page.textContent('#liveSum')).includes('实时评估'), 'copilot judges soundness, credibility and level fit, with a running summary');
   await shot('4-copilot');
   await page.fill('#notes', '项目讲得清楚，应变偏弱。');
   // 录到第 13 秒以后再结束，保证除了完整的第一段外还有一段收尾的录音。

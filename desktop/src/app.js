@@ -7,6 +7,13 @@ const main = $('#main');
 const state = { view: 'home', tab: 'resume', id: null, interview: null, info: null, settings: null, busy: {}, stream: {}, rec: null, recState: 'idle', segErrors: new Map() };
 const STATUS = { draft: '待出题', ready: '已出题', done: '已面试', evaluated: '已评估' };
 const DIM_COLORS = { 专业度: 'd1', 自驱力: 'd2', 性格特质: 'd3', 逻辑思维: 'd4', 适应力: 'd5' };
+// 题目类别：开场 / 简历项目 / 岗位画像 / 技术框架 / 做事方式（旧数据的 basic 算技术）
+const KIND = { warmup: '开场', gate: '门槛', resume: '项目', profile: '画像', tech: '技术', basic: '技术', behavior: '做事方式' };
+const kindChip = (src) => (KIND[src] ? `<i class="kind k-${src === 'basic' ? 'tech' : src}">${KIND[src]}</i>` : '');
+// 难度标签和预计用时（旧数据没有这两项就不显示）
+const diffChip = (q) => (q.difficulty ? `<i class="diff d-${{ 难: 'hard', 中: 'mid', 易: 'easy' }[q.difficulty]}">${q.difficulty}</i>` : '');
+const sectionMinutes = (sec) => sec.questions.reduce((a, q) => a + (q.minutes || 0), 0);
+const sectionHead = (sec) => `${kindChip(sec.source)}${esc(sec.title)}<span>${sec.questions.length} 题${sectionMinutes(sec) ? ` · 约 ${sectionMinutes(sec)} 分钟` : ''}</span>`;
 const VERDICT_CLASS = { 强烈推荐: 'v1', 推荐: 'v2', 待定: 'v3', 不推荐: 'v4' };
 
 // ---------- 工具 ----------
@@ -361,6 +368,7 @@ function positionCardHTML(p, st) {
    <div class="pos-top"><div class="pos-title"><h3>${esc(p.title)}</h3>${levelChip(p.level)}</div>
     <span class="pos-tools"><button class="nav-icon" data-pos-edit="${p.id}" title="编辑">${icon('edit')}</button><button class="nav-icon danger" data-pos-remove="${p.id}" title="删除">${icon('trash')}</button></span></div>
    <p class="pos-jd">${p.jd ? esc(p.jd) : '<span class="muted">没有填写岗位要求</span>'}</p>
+   ${p.skills ? `<div class="pos-skills">${p.skills.split(/[,，、;；\s]+/).filter(Boolean).slice(0, 8).map((k) => `<i>${esc(k)}</i>`).join('')}</div>` : ''}
    <div class="pos-pass"><div class="pos-pass-head"><span>达标线</span><b>平均 ≥ ${p.pass.average}</b></div>
     ${Levels.DIMS.map((d) => `<div class="pos-dim"><span>${d}</span><i class="pos-bar ${DIM_COLORS[d]}"><b style="width:${p.pass.dims[d] / 5 * 100}%"></b></i><em>${p.pass.dims[d]}</em></div>`).join('')}</div>
    <div class="pos-foot"><span class="muted small">${st.total ? `${st.total} 位候选人${st.judged ? ` · 达标 ${st.passed} / ${st.judged}` : ''}` : '还没有候选人'}</span><button class="btn outline" data-pos-add="${p.id}">${icon('plus')}添加候选人</button></div>
@@ -383,7 +391,7 @@ main.addEventListener('click', async (e) => {
   if (add) {
     const p = state.positions.find((x) => x.id === add.dataset.posAdd);
     try {
-      const i = await call(api.interviews.create({ positionId: p.id, position: p.title, level: p.level, pass: p.pass, jd: p.jd }));
+      const i = await call(api.interviews.create({ positionId: p.id, position: p.title, level: p.level, pass: p.pass, jd: p.jd, skills: p.skills || '' }));
       await openInterview(i.id, 'resume');
     } catch (err) { ignoreHandled(err); }
   }
@@ -401,7 +409,8 @@ function editPosition(p) {
      <div class="field"><span class="label">级别</span>
       <div class="modes level-seg" role="radiogroup" aria-label="级别">${Levels.LEVEL_NAMES.map((l) => `<label><input type="radio" name="level" value="${l}" ${draft.level === l ? 'checked' : ''}> ${l}</label>`).join('')}</div>
       <p class="hint" id="levelDesc">${esc(Levels.LEVELS[draft.level].desc)}</p></div>
-     <label class="field"><span class="label">岗位要求<span>出题和评估都会参考</span></span><textarea name="jd" rows="5" placeholder="岗位职责、技术栈、加分项…">${esc(draft.jd)}</textarea></label>
+     <label class="field"><span class="label">岗位要求（职位画像）<span>出题和评估都会参考</span></span><textarea name="jd" rows="5" placeholder="岗位职责、要具备的能力、加分项…">${esc(draft.jd)}</textarea></label>
+     <label class="field"><span class="label">技术栈<span>会专门出语言和框架的题</span></span><input name="skills" value="${esc(draft.skills || '')}" placeholder="例如：Python、FastAPI、LangChain、LangGraph、Milvus"></label>
      <div class="field"><span class="label">达标线<span>评估后平均分和每个维度都不低于这里，才算达标</span></span>
       <div class="pass-grid" id="passGrid">${scoreInput('average', draft.pass.average, '<b>五项平均</b>')}${Levels.DIMS.map((d) => scoreInput(`dim:${d}`, draft.pass.dims[d], `<i class="dot ${DIM_COLORS[d]}"></i>${d}`)).join('')}</div></div>
     </div>
@@ -422,7 +431,7 @@ function editPosition(p) {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!f.title.value.trim()) { f.title.focus(); toast('请填写岗位名称', 'warn'); return; }
-    const saved = { ...(p || {}), title: f.title.value, level: f.level.value, jd: f.jd.value.trim(), pass: { average: Number(f.average.value), dims: Object.fromEntries(Levels.DIMS.map((d) => [d, Number(f[`dim:${d}`].value)])) } };
+    const saved = { ...(p || {}), title: f.title.value, level: f.level.value, jd: f.jd.value.trim(), skills: f.skills.value.trim(), pass: { average: Number(f.average.value), dims: Object.fromEntries(Levels.DIMS.map((d) => [d, Number(f[`dim:${d}`].value)])) } };
     try {
       await call(api.positions.save(saved));
       close();
@@ -651,7 +660,7 @@ function planStreamHTML(p) {
   return `<div class="panel summary"><div class="eyebrow">候选人速览</div><p class="quote">${c.summary ? esc(c.summary) : '<span class="muted">正在读简历…</span>'}</p>
     ${list(c.highlights).length ? `<h4>${icon('target')}值得深挖</h4><ul>${list(c.highlights).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</div>
    <div class="plan-bar"><span class="count">已生成 <b>${all.filter((q) => q?.q).length}</b> 道题</span></div>
-   ${sections.filter((s) => s?.title).map((s) => `<section class="section"><h2>${esc(s.title)}<span>${(s.questions || []).length} 题</span></h2>${(Array.isArray(s.questions) ? s.questions : []).filter((q) => q?.q).map((q) => `<article class="q streaming ${q === last ? 'typing' : ''}">
+   ${sections.filter((s) => s?.title).map((s) => `<section class="section"><h2>${kindChip(s.source)}${esc(s.title)}<span>${(s.questions || []).length} 题</span></h2>${(Array.isArray(s.questions) ? s.questions : []).filter((q) => q?.q).map((q) => `<article class="q streaming ${q === last ? 'typing' : ''}">
      <div class="q-main">${q.dim ? `<i class="dim ${DIM_COLORS[q.dim] || ''}">${esc(q.dim)}</i>` : ''}<div class="q-text"><h3>${esc(q.q)}</h3>${q.why ? `<p class="sub">${esc(q.why)}</p>` : ''}</div>${q === last ? '<span class="q-actions muted small">生成中…</span>' : ''}</div>
      ${list(q.points).length || q.follow ? `<div class="q-detail"><div><div class="mini-label">回答要点</div><ul class="checks">${list(q.points).map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div><div>${q.follow ? `<div class="mini-label">追问</div><p class="follow-box">${esc(q.follow)}</p>` : ''}</div></div>` : ''}</article>`).join('')}</section>`).join('')}`;
 }
@@ -675,7 +684,7 @@ function positionPickerHTML(i) {
 }
 // 关联岗位：把岗位当时的设置复制到这场面试（之后改岗位不会影响已经面过的人）。
 function linkPosition(i, p) {
-  const patch = p ? { positionId: p.id, position: p.title, level: p.level, pass: p.pass, jd: p.jd } : { positionId: '', level: '', pass: null };
+  const patch = p ? { positionId: p.id, position: p.title, level: p.level, pass: p.pass, jd: p.jd, skills: p.skills || '' } : { positionId: '', level: '', pass: null };
   Object.assign(i, patch);
   saveField(patch);
 }
@@ -692,7 +701,8 @@ function renderResume(body) {
     <textarea id="resumeText" rows="14" placeholder="上传后这里会显示读取到的简历文字">${esc(i.resume)}</textarea>
    </div>
    <div class="panel"><div class="card-title">${icon('target')}岗位要求${i.positionId ? '<span class="muted small" style="font-weight:400">从岗位带入，改动只对这场面试生效</span>' : '（可选）'}</div>
-    <textarea id="jdText" rows="16" placeholder="写上岗位职责和要求，出的基础题会更贴合">${esc(i.jd)}</textarea>
+    <textarea id="jdText" rows="13" placeholder="岗位职责、要具备的能力，出题会围绕这些来问">${esc(i.jd)}</textarea>
+    <label class="field" style="margin-top:14px"><span class="label">技术栈<span>会专门出语言和框架的题</span></span><input id="skillsInput" value="${esc(i.skills || '')}" placeholder="例如：Python、FastAPI、LangChain"></label>
     <p class="info-note">${icon('info')}<span>填好姓名、岗位和简历后，下一步先调试麦克风和耳机，再生成面试题。</span></p>
    </div></div></div>
    <div class="action-bar"><span class="muted small">${i.resume.trim() ? `简历约 ${i.resume.replace(/\s/g, '').length} 字` : '还没有简历内容'}</span><button class="btn primary big" data-tab-go="audio">下一步：调试音频 ${icon('chevR')}</button></div>`;
@@ -717,6 +727,7 @@ function renderResume(body) {
   $('#posSelect')?.addEventListener('change', (e) => { linkPosition(i, state.positions.find((p) => p.id === e.target.value)); renderResume(body); $('#headPos').innerHTML = headPosText(i); });
   $('#resumeText').addEventListener('input', (e) => { i.resume = e.target.value; saveField({ resume: i.resume }); });
   $('#jdText').addEventListener('input', (e) => { i.jd = e.target.value; saveField({ jd: i.jd }); });
+  $('#skillsInput').addEventListener('input', (e) => { i.skills = e.target.value; saveField({ skills: i.skills }); });
 }
 async function generatePlan() {
   const i = state.interview;
@@ -742,11 +753,19 @@ function questionCard(q) {
   const open = state.openQ === q.id;
   return `<article class="q ${q.asked ? 'asked' : ''} ${open ? 'open' : ''}" data-q="${q.id}">
    <div class="q-main" data-toggle-q="${q.id}"><i class="dim ${DIM_COLORS[q.dim] || ''}">${esc(q.dim)}</i>
-    <div class="q-text"><h3>${esc(q.q)}</h3>${q.why ? `<p class="sub">${esc(q.why)}</p>` : ''}</div>
+    <div class="q-text"><h3>${esc(q.q)}</h3><p class="sub">${diffChip(q)}${q.kind && KIND[q.kind] ? `<span>${KIND[q.kind]}</span>` : ''}${q.minutes ? `<span>约 ${q.minutes} 分钟</span>` : ''}${q.why ? `<span>${esc(q.why)}</span>` : ''}</p></div>
     <span class="q-actions"><button class="link" data-rewrite="${q.id}">换个问法</button><button class="tick ${q.asked ? 'on' : ''}" data-ask="${q.id}">${q.asked ? '✓ 已问' : '标记已问'}</button><span class="muted">${icon(open ? 'chevU' : 'chevD')}</span></span></div>
    <div class="q-detail"><div><div class="mini-label">回答要点</div><ul class="checks">${q.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
      ${q.follow ? `<div class="mini-label" style="margin-top:14px">追问</div><p class="follow-box">${esc(q.follow)}</p>` : ''}</div>
     <div class="signals">${q.good ? `<p class="good"><b>答得不错的表现</b>${esc(q.good)}</p>` : ''}${q.bad ? `<p class="bad"><b>需要警惕</b>${esc(q.bad)}</p>` : ''}</div></div></article>`;
+}
+// 各类题目数量：项目 7 · 画像 4 · 技术 5 · 做事方式 3
+function kindCounts(p) {
+  const n = {};
+  for (const s of p.sections) for (const q of s.questions) { const k = KIND[q.kind] || KIND[s.source] || '项目'; n[k] = (n[k] || 0) + 1; }
+  const gate = p.sections.filter((s) => s.source === 'gate');
+  const gateText = gate.length ? `前 ${gate.reduce((a, s) => a + sectionMinutes(s), 0) || 15} 分钟门槛题 ${gate.reduce((a, s) => a + s.questions.length, 0)} 道 · ` : '';
+  return gateText + ['开场', '项目', '画像', '技术', '做事方式'].filter((k) => n[k]).map((k) => `${k} ${n[k]}`).join(' · ');
 }
 function renderPlan(body) {
   const i = state.interview, p = i.plan;
@@ -768,8 +787,8 @@ function renderPlan(body) {
    <div class="panel summary"><div class="eyebrow">候选人速览</div><p class="quote">${esc(p.candidate.summary)}</p>
     <div class="grid-2"><div><h4>${icon('target')}值得深挖</h4><ul>${p.candidate.highlights.map((x) => `<li>${esc(x)}</li>`).join('') || '<li class="muted">—</li>'}</ul></div>
     <div><h4>${icon('alert')}需要核实</h4><ul>${verify || '<li class="muted">—</li>'}</ul></div></div></div>
-   <div class="plan-bar"><span class="count"><span>共 <b>${qs.length}</b> 道题</span><span>已问 <b>${asked}</b></span></span><span class="row"><button class="btn" id="genPlan">${icon('refresh')}重新生成</button><button class="btn primary" data-tab-go="live">开始面试 ${icon('chevR')}</button></span></div>
-   ${p.sections.map((s) => `<section class="section"><h2>${esc(s.title)}<span>${s.questions.length} 题</span></h2>${s.questions.map((q) => questionCard(q)).join('')}</section>`).join('')}
+   <div class="plan-bar"><span class="count"><span>共 <b>${qs.length}</b> 道题</span><span>已问 <b>${asked}</b></span><span class="kinds">${kindCounts(p)}</span></span><span class="row"><button class="btn" id="genPlan">${icon('refresh')}重新生成</button><button class="btn primary" data-tab-go="live">开始面试 ${icon('chevR')}</button></span></div>
+   ${p.sections.map((s) => `<section class="section ${s.source === 'gate' ? 'gate' : ''}"><h2>${sectionHead(s)}</h2>${s.source === 'gate' ? '<p class="gate-hint">先问这几道：最难、最能看出是否达到目标级别，前 15 分钟答不好基本可以判断不合适。</p>' : ''}${s.questions.map((q) => questionCard(q)).join('')}</section>`).join('')}
   </div></div>`;
   $('#genPlan').addEventListener('click', generatePlan);
 }
@@ -1207,15 +1226,39 @@ function detectQuestion(seg) {
   if (hit.q === currentQuestion(qs) && hit.q.askedAt != null) return;
   setCurrent(hit.q, { at: seg.start, auto: true });
 }
+// AI 副驾：总评 + 合理性 / 可信度 / 级别匹配三行判断 + 下一步追问。
+const JUDGE_CLASS = { 合理: 'good', 部分合理: 'mid', 不合理: 'weak', 可信: 'good', 存疑: 'mid', 不可信: 'weak', 符合: 'good', 高于: 'good', 低于: 'weak' };
 function copilotHTML(q) {
-  const r = q.review, busy = state.reviewing === q.id;
+  const r = q.review, busy = state.reviewing === q.id, lv = state.interview.level;
   const LEVEL = { 好: 'good', 一般: 'mid', 弱: 'weak' };
+  const row = (label, value, note) => (value ? `<div class="cp-row"><span class="cp-label">${label}</span><i class="lvl ${JUDGE_CLASS[value] || 'mid'}">${esc(value)}</i><span class="cp-note">${esc(note || '')}</span></div>` : '');
   return `<div class="copilot">
-    <div class="copilot-head"><b>${icon('sparkle')}AI 副驾</b><span class="muted">${busy ? '正在看候选人的回答…' : r ? `答完后自动点评 · ${new Date(r.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : '候选人答完会自动点评'}</span>
+    <div class="copilot-head"><b>${icon('sparkle')}AI 副驾</b><span class="muted">${busy ? '正在看候选人的回答…' : r ? `点评于 ${new Date(r.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}，回答继续变长会自动更新` : '候选人答完会自动点评，也可以随时点右边'}</span>
      <span class="right-side">${r ? `<i class="lvl ${LEVEL[r.level] || 'mid'}">${esc(r.level)}</i>` : ''}<button class="link" data-review="${q.id}" ${busy ? 'disabled' : ''}>${r ? '重新点评' : '看看答得怎样'}</button></span></div>
     ${r ? `<p class="copilot-comment">${esc(r.comment)}</p>
-     ${r.follow.length ? `<div class="copilot-follow"><b>可以追问</b><div>${r.follow.map((f) => `<p>${esc(f)}</p>`).join('')}</div></div>` : ''}` : ''}
+     ${r.sound || r.credible || r.fit ? `<div class="cp-rows">${row('合理性', r.sound, r.soundNote)}${row('可信度', r.credible, r.credibleNote)}${row(lv ? `对照${esc(lv)}` : '级别', r.fit ? `${r.fit}${lv || ''}` : '', r.fitNote)}</div>` : ''}
+     ${r.follow.length ? `<div class="copilot-follow"><b>${r.next === '换题' ? '可以换题，或问' : '建议追问'}</b><div>${r.follow.map((f) => `<p>${esc(f)}</p>`).join('')}</div></div>` : ''}` : ''}
    </div>`;
+}
+// 实时评估：把已经点评过的题汇总成到目前为止的判断（不额外调用模型）。
+function liveSummaryHTML(qs) {
+  const rs = qs.filter((q) => q.review).map((q) => q.review), lv = state.interview.level;
+  if (!rs.length) return '<div class="live-sum empty-sum">实时评估：候选人答完题后，这里汇总到目前为止的判断</div>';
+  const count = (key, v) => rs.filter((r) => r[key] === v).length;
+  const good = count('level', '好'), mid = count('level', '一般'), weak = count('level', '弱');
+  const doubt = count('credible', '存疑') + count('credible', '不可信'), wrong = count('sound', '不合理');
+  const fits = { 低于: count('fit', '低于'), 符合: count('fit', '符合'), 高于: count('fit', '高于') }, judged = fits.低于 + fits.符合 + fits.高于;
+  const fitText = !judged ? '' : fits.低于 > judged / 2 ? `整体低于${lv || '目标级别'}` : fits.高于 > judged / 2 ? `可能高于${lv || '目标级别'}` : `基本符合${lv || '目标级别'}`;
+  const pct = (n) => `${n / rs.length * 100}%`;
+  // 门槛题：至少点评过一半（且不少于 2 道，门槛题不足 2 道时要全部点评）才给结论——大多弱或低于目标级别就提示可以提前结束。
+  const gateQs = state.interview.plan.sections.filter((x) => x.source === 'gate').flatMap((x) => x.questions), gateRs = gateQs.filter((q) => q.review).map((q) => q.review);
+  const gateBad = gateRs.filter((r) => r.level === '弱' || r.fit === '低于' || r.credible === '不可信').length;
+  const gateLine = gateQs.length && gateRs.length * 2 >= gateQs.length && gateRs.length >= Math.min(2, gateQs.length)
+    ? (gateBad * 2 > gateRs.length ? `<div class="ls-gate bad">门槛题 ${gateRs.length} 道里 ${gateBad} 道没达到，可以考虑提前结束</div>` : `<div class="ls-gate ok">门槛题基本过关，继续往下问</div>`) : '';
+  return `<div class="live-sum">${gateLine}<div class="ls-head"><b>实时评估</b><span>已点评 ${rs.length} 题</span></div>
+   <div class="ls-bar"><i class="good" style="width:${pct(good)}"></i><i class="mid" style="width:${pct(mid)}"></i><i class="weak" style="width:${pct(weak)}"></i></div>
+   <div class="ls-line"><span>好 ${good} · 一般 ${mid} · 弱 ${weak}</span>${fitText ? `<b class="${fits.低于 > judged / 2 ? 'bad' : 'ok'}">${fitText}</b>` : ''}</div>
+   ${doubt || wrong ? `<div class="ls-line warn">${doubt ? `存疑 ${doubt} 题` : ''}${doubt && wrong ? ' · ' : ''}${wrong ? `不合理 ${wrong} 题` : ''}，留意追问核实</div>` : ''}</div>`;
 }
 function currentHTML(qs) {
   if (!qs.length) return '<div class="empty"><h3>还没有面试题</h3><p>可以先去「3 面试题」生成，也可以直接录音。</p></div>';
@@ -1236,7 +1279,7 @@ function currentHTML(qs) {
 function qListHTML(qs) {
   if (!qs.length) return '<p class="muted small" style="padding:16px 18px">还没有面试题</p>';
   const cur = currentQuestion(qs), LV = { 好: 'good', 一般: 'mid', 弱: 'weak' };
-  return state.interview.plan.sections.map((s) => `<h4>${esc(s.title)}</h4>${s.questions.map((q) => `<button class="q-row ${q === cur ? 'on' : ''} ${q.asked ? 'done' : ''}" data-pick="${q.id}"><em><i class="dot ${DIM_COLORS[q.dim] || ''}"></i>${q.asked ? '✓ 已问' : q === cur ? '当前' : esc(q.dim)}${q.review ? `<i class="lvl ${LV[q.review.level] || 'mid'}">${esc(q.review.level)}</i>` : ''}</em><span>${esc(q.q)}</span></button>`).join('')}`).join('');
+  return state.interview.plan.sections.map((s) => `<h4>${s.source === 'gate' ? kindChip('gate') : ''}${esc(s.title)}</h4>${s.questions.map((q) => `<button class="q-row ${q === cur ? 'on' : ''} ${q.asked ? 'done' : ''}" data-pick="${q.id}"><em><i class="dot ${DIM_COLORS[q.dim] || ''}"></i>${q.asked ? '✓ 已问' : q === cur ? '当前' : esc(q.dim)}${q.review ? `<i class="lvl ${LV[q.review.level] || 'mid'}">${esc(q.review.level)}</i>` : ''}</em><span>${esc(q.q)}</span></button>`).join('')}`).join('');
 }
 function transcriptColHTML() {
   const i = state.interview, rec = state.recState;
@@ -1270,7 +1313,7 @@ function renderLive(body) {
     </div>
    </div>
    <div class="board">
-    <section class="col col-list"><div class="col-head">面试题<span class="chip" id="askedCount">已问 ${qs.filter((q) => q.asked).length} / ${qs.length}</span></div><div class="q-list" id="qList">${qListHTML(qs)}</div></section>
+    <section class="col col-list"><div class="col-head">面试题<span class="chip" id="askedCount">已问 ${qs.filter((q) => q.asked).length} / ${qs.length}</span></div><div id="liveSum">${liveSummaryHTML(qs)}</div><div class="q-list" id="qList">${qListHTML(qs)}</div></section>
     <section class="col col-main" id="liveQuestions">${currentHTML(qs)}</section>
     <section class="col col-side" id="transcriptCol">${transcriptColHTML()}</section>
    </div>`;
@@ -1314,6 +1357,7 @@ function refreshLiveQuestions() {
   box.innerHTML = currentHTML(qs);
   $('#qList').innerHTML = qListHTML(qs);
   $('#askedCount').textContent = `已问 ${qs.filter((q) => q.asked).length} / ${qs.length}`;
+  $('#liveSum').innerHTML = liveSummaryHTML(qs);
   $('#qList .q-row.on')?.scrollIntoView({ block: 'nearest' });
 }
 // 只有一路麦克风或导入的文字时，转写里没有说话人，需要模型区分。

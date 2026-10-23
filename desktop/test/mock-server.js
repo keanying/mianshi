@@ -6,11 +6,11 @@ const PLAN = {
   candidate: { summary: '7 年经验，做过多 Agent 竞品分析和知识库问答', highlights: ['CarScope 多 Agent'], doubts: ['召回率口径不清'] },
   verify: [{ point: '项目时间和公司对应关系', ask: '这几个项目分别是在哪家公司做的？' }],
   sections: [
-    { title: '开场热身', source: 'basic', questions: [{ q: '先简单说说你最近在做什么吧？', why: '热身', points: ['说清角色', '说清项目'], follow: '你在里面具体负责哪块？', dim: '逻辑思维', good: '先结论后细节', bad: '流水账' }] },
-    { title: '项目一：CarScope', source: 'resume', questions: [
-      { q: '你们那个竞品分析平台，一份报告是怎么一步步生成出来的？', why: '看是否真做过', points: ['数据从哪来', '怎么对比', '怎么出报告'], follow: '哪一步最容易出错？', dim: '专业度', good: '讲得出取舍', bad: '只报组件名' },
-      { q: '要是业务说每周自动更新，只重写有新资料的章节，你会怎么改？', why: '应变', points: ['章节和资料挂钩', '只重跑受影响章节'], follow: '怎么知道哪些资料是新的？', dim: '适应力', good: '先问清楚再改', bad: '全部重新生成' } ] },
-    { title: '做事方式', source: 'behavior', questions: [{ q: '最近一次主动去学新东西是什么？学完用上了吗？', why: '自驱力', points: ['有具体例子', '有结果'], follow: '是谁让你学的？', dim: '自驱力', good: '自己找的', bad: '说不出例子' }] },
+    { title: '开场热身', source: 'warmup', questions: [{ q: '先简单说说你最近在做什么吧？', difficulty: '易', minutes: 2, why: '热身', points: ['说清角色', '说清项目'], follow: '你在里面具体负责哪块？', dim: '逻辑思维', good: '先结论后细节', bad: '流水账' }] },
+    { title: '门槛题（前 15 分钟）', source: 'gate', questions: [
+      { q: '你们那个竞品分析平台，一份报告是怎么一步步生成出来的？', kind: 'resume', difficulty: '难', minutes: 5, why: '看是否真做过', points: ['数据从哪来', '怎么对比', '怎么出报告'], follow: '哪一步最容易出错？', dim: '专业度', good: '讲得出取舍', bad: '只报组件名' },
+      { q: '要是业务说每周自动更新，只重写有新资料的章节，你会怎么改？', kind: 'tech', difficulty: '难', minutes: 5, why: '应变', points: ['章节和资料挂钩', '只重跑受影响章节'], follow: '怎么知道哪些资料是新的？', dim: '适应力', good: '先问清楚再改', bad: '全部重新生成' } ] },
+    { title: '做事方式', source: 'behavior', questions: [{ q: '最近一次主动去学新东西是什么？学完用上了吗？', kind: 'behavior', difficulty: '中', minutes: 3, why: '自驱力', points: ['有具体例子', '有结果'], follow: '是谁让你学的？', dim: '自驱力', good: '自己找的', bad: '说不出例子' }] },
   ],
 };
 const EVAL = {
@@ -62,10 +62,10 @@ function start(port = 0) {
       }
       const prompt = payload.messages.map((m) => m.content).join('\n');
       let answer = '正常';
-      if (prompt.includes('请准备大约')) answer = '```json\n' + JSON.stringify(PLAN) + '\n```';
+      if (prompt.includes('题目要围绕职位画像来出')) answer = '```json\n' + JSON.stringify(PLAN) + '\n```';
       else if (prompt.includes('五个维度评估')) answer = JSON.stringify(EVAL);
       else if (prompt.includes('请区分说话人')) answer = JSON.stringify({ turns: [{ from: 1, to: 1, speaker: '面试官' }, { from: 2, to: 999, speaker: '候选人' }] });
-      else if (prompt.includes('面试现场给面试官做助手')) answer = JSON.stringify({ covered: [true, false], level: '一般', comment: '思路对，但没说怎么判断哪些资料是新的', follow: ['你怎么知道哪些章节要重写？'] });
+      else if (prompt.includes('面试现场给面试官做助手')) answer = JSON.stringify({ covered: [true, false], level: '一般', comment: '思路对，但没说怎么判断哪些资料是新的', sound: '部分合理', soundNote: '幂等更新思路对，但没说增量怎么识别', credible: '存疑', credibleNote: '只说了做法名词，没有数据和踩坑细节', fit: '低于', fitNote: '中级应能讲清增量识别的取舍', next: '追问', follow: ['你怎么知道哪些章节要重写？'] });
       else if (prompt.includes('换一种更口语')) answer = JSON.stringify({ q: '换个说法：报告是怎么生成的？', points: ['数据来源', '对比方式'], follow: '最难的一步？' });
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       // 先发一段 reasoning_content 模拟思考模型，再分块发正文。

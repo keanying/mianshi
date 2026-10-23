@@ -1,5 +1,5 @@
 'use strict';
-// 岗位：名称、级别、岗位要求和达标线，保存在数据目录下的 positions.json。
+// 岗位：名称、级别、岗位要求（职位画像）、技术栈和达标线，保存在数据目录下的 positions.json。
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -19,6 +19,7 @@ function normalize(p) {
     title: String(p.title || '').trim() || '未命名岗位',
     level,
     jd: String(p.jd || ''),
+    skills: String(p.skills || '').trim(),
     pass: {
       average: clampScore(p.pass?.average, def.average),
       dims: Object.fromEntries(DIMS.map((d) => [d, clampScore(p.pass?.dims?.[d], def.dims[d])])),

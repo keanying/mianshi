@@ -39,12 +39,15 @@ const QUESTION_SCHEMA = `只输出一个 JSON 对象，不要任何解释，格�
   "verify": [ { "point": "要核实的事", "ask": "开场怎么问（大白话）" } ],
   "sections": [
     {
-      "title": "分组标题，例如：开场热身 / 项目一：XXX / 基础能力 / 做事方式",
-      "source": "basic 或 resume 或 behavior",
+      "title": "分组标题，例如：开场 / 门槛题（前 15 分钟） / 项目：XXX / 岗位画像：独立负责模块 / 技术：Python 并发 / 做事方式",
+      "source": "warmup | gate | resume | profile | tech | behavior 之一（开场 / 门槛题 / 简历项目 / 岗位画像 / 技术框架 / 做事方式）",
       "questions": [
         {
           "q": "问题（大白话）",
-          "why": "这题想了解什么（一句话）",
+          "kind": "这题本身属于哪类：resume | profile | tech | behavior（门槛题组里每道题都要写）",
+          "difficulty": "难 | 中 | 易",
+          "minutes": 预计这题连追问要几分钟（整数，1~6）,
+          "why": "这题想了解什么（一句话），画像题和技术题要点名对应的岗位要求或技术点",
           "points": ["好回答应该提到的点，2~4 条，大白话"],
           "follow": "对方答完后可以追问的一句",
           "dim": "专业度 | 自驱力 | 性格特质 | 逻辑思维 | 适应力 之一",
@@ -56,10 +59,14 @@ const QUESTION_SCHEMA = `只输出一个 JSON 对象，不要任何解释，格�
   ]
 }`;
 
-function questionMessages({ resume, position, level, jd, count = 20 }) {
-  const basic = Math.max(3, Math.round(count * 0.25));
-  const behavior = Math.max(3, Math.round(count * 0.2));
-  const fromResume = Math.max(4, count - basic - behavior);
+// 题目按岗位画像来出：简历项目深挖 + 岗位画像匹配 + 技术框架 + 做事方式，各占一定比例。
+const SOURCES = ['warmup', 'gate', 'resume', 'profile', 'tech', 'behavior'];
+const KINDS = ['resume', 'profile', 'tech', 'behavior'];
+const DIFF_RANK = { 难: 3, 中: 2, 易: 1 };
+function questionMessages({ resume, position, level, jd, skills, count = 20 }) {
+  const n = (r, min) => Math.max(min, Math.round(count * r));
+  const profile = n(0.2, 3), tech = n(0.25, 3), behavior = n(0.15, 2);
+  const fromResume = Math.max(4, count - 2 - profile - tech - behavior);
   return [
     {
       role: 'system',
@@ -67,11 +74,17 @@ function questionMessages({ resume, position, level, jd, count = 20 }) {
     },
     {
       role: 'user',
-      content: `应聘岗位：${position || '未填写'}\n${levelLine(level)}岗位要求：${jd || '未填写，按岗位名称推断'}\n${level ? '题目难度和追问深度按目标级别把握：主要看对方是否达到这个级别，再留一两道题探一下是否高于这个级别。\n' : ''}\n候选人简历（可能由 PDF 转出，排版可能有点乱）：\n"""\n${resume}\n"""\n\n请准备大约 ${count} 道面试题：
-- 简历题约 ${fromResume} 道：按简历里的项目或经历分组，每组 2~4 道，先让对方讲清楚做了什么，再问具体做法和原因，最后问“如果条件变了怎么办”。
-- 基础题约 ${basic} 道：岗位必备的基础知识，结合岗位要求出，同样用大白话。
-- 做事方式题约 ${behavior} 道：考自驱力、性格特质、适应力，要求对方举真实例子。
-五个维度都要有题覆盖。分组顺序：开场热身（1~2 道，轻松话题）→ 简历题 → 基础题 → 做事方式题。
+      content: `应聘岗位：${position || '未填写'}\n${levelLine(level)}岗位要求（职位画像）：${jd || '未填写，按岗位名称推断'}\n技术栈：${skills || '未填写，从岗位要求和简历里推断这个岗位必须掌握的语言和框架'}\n${level ? '题目难度和追问深度按目标级别把握：主要看对方是否达到这个级别，再留一两道题探一下是否高于这个级别。\n' : ''}\n候选人简历（可能由 PDF 转出，排版可能有点乱）：\n"""\n${resume}\n"""\n\n题目要围绕职位画像来出，大约 ${count} 道，分五类（source 字段标明类别）：
+题目从难往易排，前 15 分钟就要能筛掉大部分不合适的人：
+- 开场 warmup，只要 1 道，2 分钟内：请对方用一两句话介绍和这个岗位最相关的经历，不寒暄。
+- 门槛题 gate，紧接着开场，合计约 13~15 分钟（4~6 道，minutes 加起来不超过 15）：从下面几类里挑最难、最能区分是否达到目标级别的题——岗位画像里最核心的能力、技术栈里最关键的原理、和岗位最相关的那个项目里最硬核的问题。答不好基本就能判断不合适。每道题写清 kind 和 difficulty（基本都是「难」）。
+- 门槛题之后的各组按难度从高到低排，每组内部也先难后易；做事方式题一般放最后。
+各类题目数量（含门槛题里的）大致如下：
+- 简历项目 resume，约 ${fromResume} 道：优先挑和岗位画像最相关的项目，按项目分组，每组 2~4 道：先让对方讲清楚自己做了什么，再问具体做法、取舍和数字，最后问“如果条件变了怎么办”。专门核实简历里看起来夸大或存疑的地方。
+- 岗位画像 profile，约 ${profile} 道：把岗位要求拆成几条能力，每条出题看对方是否真具备，多用“如果让你来负责……你会怎么做”“你遇到过……吗，当时怎么办的”这类情景题，按目标级别的要求来问（比如中级看能不能独立负责模块，高级看能不能做设计和取舍）。按能力分组，标题写“岗位画像：某项能力”。
+- 技术框架 tech，约 ${tech} 道：考技术栈里的语言和框架（比如 Python 的并发、生成器、装饰器、类型标注、包管理，框架的核心机制和常见坑），结合实际场景问原理和用法，不问死记硬背的概念；难度按目标级别。按技术分组，标题写“技术：某项技术”。
+- 做事方式 behavior，约 ${behavior} 道：考自驱力、性格特质、适应力，要求对方举真实例子。
+五个维度都要有题覆盖。每道题都标 difficulty 和 minutes。
 输出前自查：每道题都像当面聊天时会说的话吗？有书面腔就改掉。\n\n${QUESTION_SCHEMA}`,
     },
   ];
@@ -190,22 +203,39 @@ function transcriptForEval(i) {
 }
 
 // ---------- 面试中 AI 副驾 ----------
-// 候选人答完一题：对照回答要点看覆盖了哪些，给一句点评和 1~2 个追问。要快，所以输出很短。
-function reviewMessages({ question, answer }) {
+// 候选人答完一题（或面试官随时点「看看答得怎样」）：不只看答到哪些要点，还要判断回答合不合理、可不可信、
+// 够不够目标级别，再结合前面聊过的内容给出下一步追问。要快，所以输出很短。
+function reviewMessages({ question, answer, position, level, jd, skills, resume, history = [] }) {
+  const past = history.length ? `前面几题的情况（按顺序）：\n${history.map((h) => `- ${h.q} → ${h.level}${h.credible && h.credible !== '可信' ? `，${h.credible}` : ''}：${h.comment}`).join('\n')}\n` : '';
   return [
-    { role: 'system', content: `你在面试现场给面试官做助手。根据候选人刚才的回答（语音转写，可能有错字），快速判断这道题答得怎样。说大白话，简短。只输出 JSON。` },
+    {
+      role: 'system',
+      content: `你在面试现场给面试官做助手。根据候选人刚才的回答（语音转写，可能有错字），快速判断这道题答得怎样。不能只看有没有提到要点，还要判断：
+1. 合理性：技术上说得对不对，做法是否站得住，有没有明显错误、违背常识或前后矛盾。
+2. 可信度：是不是真做过。有具体细节（数字、取舍、踩过的坑、具体怎么做）且和简历、前面说的对得上，才算可信；只有名词没有细节、像背书、数字夸张、和简历或前面的话对不上，就是存疑。
+3. 级别匹配：对照目标级别的要求，这个回答体现的水平是低于、符合还是高于。
+最后结合前面聊过的内容，告诉面试官下一步：继续追问（核实存疑的地方、往深里挖，或者拔高难度看能不能到更高级别），还是可以换下一题。追问要接着候选人刚说的话问，大白话。只输出 JSON。`,
+    },
     {
       role: 'user',
-      content: `题目：${question.q}\n回答要点：\n${question.points.map((p, k) => `${k + 1}. ${p}`).join('\n')}\n${question.follow ? `准备好的追问：${question.follow}\n` : ''}\n候选人的回答：\n"""\n${String(answer).slice(-3000)}\n"""\n\n只输出：{"covered": [每条要点是否答到，true/false，顺序同上], "level": "好 | 一般 | 弱", "comment": "一句话点评（不超过 40 字）", "follow": ["建议马上追问的一句话（大白话），1~2 条"]}`,
+      content: `应聘岗位：${position || '未填写'}\n${levelLine(level)}${jd ? `岗位要求：${jd.slice(0, 800)}\n` : ''}${skills ? `技术栈：${skills}\n` : ''}${resume ? `简历摘要（核对用）：\n${resume.slice(0, 1500)}\n` : ''}\n${past}\n当前题目：${question.q}\n这题想了解：${question.why || ''}\n回答要点：\n${question.points.map((p, k) => `${k + 1}. ${p}`).join('\n')}\n${question.follow ? `准备好的追问：${question.follow}\n` : ''}\n候选人的回答：\n"""\n${String(answer).slice(-3000)}\n"""\n\n只输出：{"covered": [每条要点是否答到，true/false，顺序同上], "level": "好 | 一般 | 弱", "comment": "一句话总结（不超过 40 字）", "sound": "合理 | 部分合理 | 不合理", "soundNote": "哪里对、哪里不对（不超过 50 字）", "credible": "可信 | 存疑 | 不可信", "credibleNote": "依据是什么（不超过 50 字）", "fit": "低于 | 符合 | 高于", "fitNote": "和目标级别比差在哪或强在哪（不超过 40 字）", "next": "追问 | 换题", "follow": ["建议马上追问的一句话（大白话），1~2 条"]}`,
     },
   ];
 }
 function normalizeReview(raw, pointCount) {
-  const covered = Array.from({ length: pointCount }, (_, k) => raw?.covered?.[k] === true);
+  const pick = (v, xs, d) => (xs.includes(v) ? v : d);
+  const text = (v, n) => String(v || '').slice(0, n);
   return {
-    covered,
-    level: ['好', '一般', '弱'].includes(raw?.level) ? raw.level : '一般',
-    comment: String(raw?.comment || '').slice(0, 80),
+    covered: Array.from({ length: pointCount }, (_, k) => raw?.covered?.[k] === true),
+    level: pick(raw?.level, ['好', '一般', '弱'], '一般'),
+    comment: text(raw?.comment, 80),
+    sound: pick(raw?.sound, ['合理', '部分合理', '不合理'], ''),
+    soundNote: text(raw?.soundNote, 100),
+    credible: pick(raw?.credible, ['可信', '存疑', '不可信'], ''),
+    credibleNote: text(raw?.credibleNote, 100),
+    fit: pick(raw?.fit, ['低于', '符合', '高于'], ''),
+    fitNote: text(raw?.fitNote, 80),
+    next: pick(raw?.next, ['追问', '换题'], '追问'),
     follow: (Array.isArray(raw?.follow) ? raw.follow : []).map(String).filter(Boolean).slice(0, 2),
   };
 }
@@ -215,10 +245,14 @@ function normalizeQuestions(raw) {
   const clampDim = (d) => (DIMENSIONS.includes(d) ? d : '专业度');
   const sections = (Array.isArray(raw.sections) ? raw.sections : []).map((s, si) => ({
     title: String(s.title || `第 ${si + 1} 组`),
-    source: ['basic', 'resume', 'behavior'].includes(s.source) ? s.source : 'resume',
+    // 旧版本的 basic（基础题）归到技术框架
+    source: s.source === 'basic' ? 'tech' : SOURCES.includes(s.source) ? s.source : 'resume',
     questions: (Array.isArray(s.questions) ? s.questions : []).filter((q) => q && q.q).map((q, qi) => ({
       id: `s${si + 1}q${qi + 1}`,
       q: String(q.q).trim(),
+      kind: KINDS.includes(q.kind) ? q.kind : (KINDS.includes(s.source) ? s.source : s.source === 'basic' ? 'tech' : ''),
+      difficulty: DIFF_RANK[q.difficulty] ? q.difficulty : '中',
+      minutes: Math.min(10, Math.max(1, Math.round(Number(q.minutes)) || 3)),
       why: String(q.why || ''),
       points: (Array.isArray(q.points) ? q.points : []).map(String).filter(Boolean),
       follow: String(q.follow || ''),
@@ -230,6 +264,11 @@ function normalizeQuestions(raw) {
     })),
   })).filter((s) => s.questions.length);
   if (!sections.length) throw new Error('模型没有生成题目，请重试。');
+  // 从难到易：开场 → 门槛题 → 其余各组按平均难度从高到低（同样难的保持原顺序），做事方式题放最后。
+  const rank = (sec) => (sec.source === 'warmup' ? 100 : sec.source === 'gate' ? 50 : sec.source === 'behavior' ? -50 : 0)
+    + sec.questions.reduce((a, q) => a + DIFF_RANK[q.difficulty], 0) / sec.questions.length;
+  sections.forEach((sec) => sec.questions.sort((a, b) => DIFF_RANK[b.difficulty] - DIFF_RANK[a.difficulty]));
+  sections.sort((a, b) => rank(b) - rank(a));
   return {
     candidate: {
       summary: String(raw.candidate?.summary || ''),

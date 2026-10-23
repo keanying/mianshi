@@ -48,6 +48,9 @@ test('question generation round trip produces normalized plan', async () => {
   assert.strictEqual(plan.sections.length, 3);
   assert.ok(plan.sections.every((s) => s.questions.every((q) => q.id && prompts.DIMENSIONS.includes(q.dim) && q.asked === false)));
   assert.match(calls[0].body, /大白话/);
+  assert.match(calls[0].body, /岗位画像 profile/);
+  assert.match(calls[0].body, /技术框架 tech/);
+  assert.strictEqual(prompts.normalizeQuestions({ sections: [{ title: '基础', source: 'basic', questions: [{ q: '题' }] }] }).sections[0].source, 'tech', 'old basic sections count as tech');
   server.close();
 });
 
@@ -158,8 +161,13 @@ test('text matching: transcription check, question recognition, echo, rhythm', (
 });
 
 test('live review output is normalized', () => {
-  assert.deepStrictEqual(prompts.normalizeReview({ covered: [true, 'yes'], level: '很好', follow: ['追问一', '', '追问二', '追问三'] }, 3), { covered: [true, false, false], level: '一般', comment: '', follow: ['追问一', '追问二'] });
-  assert.match(prompts.reviewMessages({ question: { q: '题', points: ['a', 'b'] }, answer: '回答' })[1].content, /1\. a\n2\. b/);
+  assert.deepStrictEqual(prompts.normalizeReview({ covered: [true, 'yes'], level: '很好', credible: '存疑', fit: '高高', follow: ['追问一', '', '追问二', '追问三'] }, 3),
+    { covered: [true, false, false], level: '一般', comment: '', sound: '', soundNote: '', credible: '存疑', credibleNote: '', fit: '', fitNote: '', next: '追问', follow: ['追问一', '追问二'] });
+  const m = prompts.reviewMessages({ question: { q: '题', points: ['a', 'b'] }, answer: '回答', level: '中级', skills: 'Python', history: [{ q: '上一题', level: '弱', credible: '存疑', comment: '没细节' }] });
+  assert.match(m[1].content, /1\. a\n2\. b/);
+  assert.match(m[1].content, /目标级别：中级/);
+  assert.match(m[1].content, /上一题 → 弱，存疑：没细节/);
+  assert.match(m[0].content, /合理性[\s\S]*可信度[\s\S]*级别匹配/);
 });
 
 test('speech synthesis returns a wav for the simulated candidate', async () => {
@@ -224,4 +232,19 @@ test('prompts carry the target level and pass line', () => {
   assert.match(e, /达标线：五项平均不低于 3/);
   assert.match(e, /专业度 3/);
   assert.strictEqual(prompts.normalizeEvaluation({ overall: { level: '专家' } }).overall.level, '专家');
+});
+
+test('questions are ordered hardest first: warm-up, gate, then by difficulty, behaviour last', () => {
+  const q = (text, difficulty) => ({ q: text, difficulty });
+  const plan = prompts.normalizeQuestions({ sections: [
+    { title: '做事方式', source: 'behavior', questions: [q('b', '难')] },
+    { title: '项目', source: 'resume', questions: [q('r1', '易'), q('r2', '中')] },
+    { title: '技术', source: 'tech', questions: [q('t1', '难')] },
+    { title: '门槛题', source: 'gate', questions: [q('g1', '中'), q('g2', '难')] },
+    { title: '开场', source: 'warmup', questions: [q('w', '易')] },
+  ] });
+  assert.deepStrictEqual(plan.sections.map((x) => x.title), ['开场', '门槛题', '技术', '项目', '做事方式']);
+  assert.deepStrictEqual(plan.sections[1].questions.map((x) => x.q), ['g2', 'g1']);
+  assert.deepStrictEqual(plan.sections[3].questions.map((x) => x.q), ['r2', 'r1']);
+  assert.strictEqual(plan.sections[1].questions[0].minutes, 3);
 });
