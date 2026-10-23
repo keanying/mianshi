@@ -237,7 +237,7 @@ textarea:focus,input:focus,select:focus{outline:none;border-color:var(--accent);
 .table-foot .btn{height:32px;padding:0 12px;font-size:13px}
 
 /* ---------- 单场面试：页头 + 步骤条 ---------- */
-.iv-head{flex-shrink:0;background:var(--surface);border-bottom:1px solid var(--line);padding:20px 32px 14px}
+.iv-head{flex-shrink:0;margin:14px 14px 0;padding:16px 28px 14px;border-radius:22px;background:var(--surface);box-shadow:0 2px 8px #1b1f3b0d,0 16px 40px #3b2fa014}
 .iv-title{display:flex;align-items:center;gap:14px}
 .iv-title .back{display:grid;place-items:center;width:34px;height:34px;border-radius:8px;color:var(--muted)}
 .iv-title .back:hover{background:var(--bg)}
@@ -258,7 +258,7 @@ textarea:focus,input:focus,select:focus{outline:none;border-color:var(--accent);
 .tab-body{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column}
 .tab-inner{flex:1;padding:28px 32px 32px;width:100%}
 .tab-inner.narrow{max-width:1100px;margin:0 auto}
-.action-bar{position:sticky;bottom:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 32px;background:var(--surface);border-top:1px solid var(--line)}
+.action-bar{position:sticky;bottom:14px;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 14px 14px;padding:14px 22px 14px 28px;border-radius:22px;background:var(--surface);box-shadow:0 2px 8px #1b1f3b0d,0 16px 40px #3b2fa01a}
 .action-bar .badges{display:flex;gap:10px;flex-wrap:wrap}
 
 /* ---------- 1 候选人 ---------- */
@@ -347,9 +347,10 @@ textarea:focus,input:focus,select:focus{outline:none;border-color:var(--accent);
 .q-detail{display:none;grid-template-columns:1fr 1fr;gap:20px;padding:18px 20px 20px;border-top:1px solid var(--line-2)}
 .q.open .q-detail,.q.streaming .q-detail{display:grid}
 .mini-label{margin-bottom:8px;font-size:12px;font-weight:600;color:var(--muted)}
-.checks{list-style:none;padding:0;font-size:14px;color:var(--ink-2)}
-.checks li{display:flex;gap:8px}
-.checks li::before{content:"✓";color:var(--good);font-weight:700}
+.checks{list-style:none;padding:0;font-size:14px;line-height:1.65;color:var(--ink-2);counter-reset:pt}
+.checks li{display:flex;align-items:flex-start;gap:10px}
+.checks li+li{margin-top:8px}
+.checks li::before{counter-increment:pt;content:counter(pt);flex-shrink:0;display:grid;place-items:center;width:20px;height:20px;margin-top:1px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-size:11.5px;font-weight:700;line-height:1}
 .signals{display:flex;flex-direction:column;gap:12px}
 .signals p{margin:0;padding:12px 14px;border-radius:10px;font-size:13px;line-height:1.7}
 .signals b{display:block;font-size:12px;margin-bottom:2px}
