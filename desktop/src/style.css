@@ -247,7 +247,7 @@ textarea:focus,input:focus,select:focus{outline:none;border-color:var(--accent);
 .parsed{display:flex;justify-content:space-between;align-items:center;margin:16px 0 6px;font-size:12.5px;font-weight:600;color:var(--muted)}
 .file-chip{font-size:12px;font-weight:400;padding:2px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent)}
 #resumeText{min-height:300px}
-#jdText{min-height:420px;margin-bottom:14px}
+#jdText{min-height:320px}
 
 /* ---------- 2 音频调试 ---------- */
 #audioBox{flex:1;display:flex;flex-direction:column}
@@ -598,3 +598,35 @@ input.switch:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .need{font-size:11.5px;color:var(--faint)}.need.bad{color:var(--bad);font-weight:600}
 .score-bar{position:relative;overflow:visible}
 .need-mark{position:absolute;top:-3px;bottom:-3px;width:2px;margin-left:-1px;border-radius:1px;background:var(--ink-2)}
+
+/* 题目类别 */
+.kind{display:inline-flex;align-items:center;height:20px;margin-right:4px;padding:0 7px;border-radius:5px;font-style:normal;font-size:11.5px;font-weight:600}
+.k-warmup{background:#f1f5f9;color:#475569}.k-resume{background:var(--d1s);color:var(--d1)}.k-profile{background:var(--accent-soft);color:var(--accent)}
+.k-tech{background:var(--d5s);color:var(--d5)}.k-behavior{background:var(--d2s);color:var(--d2)}
+.plan-bar .kinds{color:var(--faint)}
+.pos-skills{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.pos-skills i{padding:1px 8px;border-radius:5px;background:var(--d5s);color:var(--d5);font-style:normal;font-size:12px}
+/* AI 副驾：三行判断 */
+.cp-rows{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.cp-row{display:grid;grid-template-columns:64px auto 1fr;align-items:start;gap:8px;font-size:13px;line-height:1.6}
+.cp-label{color:var(--muted);padding-top:1px}
+.cp-row .lvl{justify-self:start;white-space:nowrap}
+.cp-note{color:var(--ink-2)}
+/* 实时评估 */
+.live-sum{flex-shrink:0;margin:10px 12px 4px;padding:10px 12px;border-radius:10px;background:#f8f9fa;font-size:12.5px;color:var(--ink-2)}
+.live-sum.empty-sum{color:var(--faint);line-height:1.6}
+.ls-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}.ls-head span{color:var(--faint);font-size:12px}
+.ls-bar{display:flex;height:6px;border-radius:3px;overflow:hidden;background:#e9ecef}
+.ls-bar i{display:block;height:100%}.ls-bar .good{background:#22c55e}.ls-bar .mid{background:#f59e0b}.ls-bar .weak{background:#ef4444}
+.ls-line{display:flex;justify-content:space-between;gap:8px;margin-top:6px}
+.ls-line b.ok{color:var(--good)}.ls-line b.bad{color:var(--bad)}
+.ls-line.warn{color:var(--warn)}
+.k-gate{background:var(--bad-soft);color:var(--bad)}
+.diff{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:4px;font-style:normal;font-size:11px;font-weight:600}
+.diff.d-hard{background:var(--bad-soft);color:var(--bad)}.diff.d-mid{background:#fef3c7;color:#92400e}.diff.d-easy{background:var(--good-soft);color:var(--good)}
+.q-text .sub{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.section.gate{padding:14px 16px 16px;border:1.5px solid var(--bad-line);border-radius:14px;background:#fffafa}
+.gate-hint{margin:-4px 0 10px;font-size:12.5px;color:var(--bad)}
+.q-list h4 .kind{margin-right:6px}
+.ls-gate{margin-bottom:8px;padding:6px 10px;border-radius:8px;font-weight:600}
+.ls-gate.ok{background:var(--good-soft);color:var(--good)}.ls-gate.bad{background:var(--bad-soft);color:var(--bad)}

@@ -131,7 +131,7 @@ handle('plan:generate', async (id) => {
   const i = store.get(id), s = settings.getPublic();
   if (!i.resume.trim()) throw new Error('请先上传或粘贴简历。');
   const raw = await chatJSON(llmOptions({
-    messages: prompts.questionMessages({ resume: i.resume, position: i.position, level: i.level, jd: i.jd, count: s.questionCount }),
+    messages: prompts.questionMessages({ resume: i.resume, position: i.position, level: i.level, jd: i.jd, skills: i.skills, count: s.questionCount }),
     onDelta: progress(id, 'plan'),
   }));
   return store.save({ id, plan: prompts.normalizeQuestions(raw), status: i.status === 'draft' ? 'ready' : i.status });
@@ -255,7 +255,13 @@ handle('live:review', async (id, qid, answer) => {
   const i = store.get(id);
   const question = i.plan?.sections.flatMap((s) => s.questions).find((q) => q.id === qid);
   if (!question) throw new Error('找不到这道题。');
-  const raw = await chatJSON(llmOptions({ messages: prompts.reviewMessages({ question, answer }), temperature: 0.2, timeoutMs: 60000 }));
+  // 前面点评过的题（按问到的先后），让 AI 结合上下文判断，追问不重复、难度随表现调整。
+  const history = i.plan.sections.flatMap((s) => s.questions).filter((q) => q.review && q.id !== qid && q.askedAt != null)
+    .sort((a, b) => a.askedAt - b.askedAt).slice(-6).map((q) => ({ q: q.q, level: q.review.level, credible: q.review.credible, comment: q.review.comment }));
+  const raw = await chatJSON(llmOptions({
+    messages: prompts.reviewMessages({ question, answer, position: i.position, level: i.level, jd: i.jd, skills: i.skills, resume: i.resume, history }),
+    temperature: 0.2, timeoutMs: 60000,
+  }));
   const review = { ...prompts.normalizeReview(raw, question.points.length), chars: answer.length, at: new Date().toISOString() };
   // 点评期间面试官可能又标了已问：重新读一遍再写，避免覆盖。
   const fresh = store.get(id), target = fresh.plan?.sections.flatMap((s) => s.questions).find((q) => q.id === qid);
