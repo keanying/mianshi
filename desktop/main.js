@@ -93,6 +93,7 @@ handle('settings:testASR', async () => {
   return '语音转文字接口可用';
 });
 handle('data:open', () => shell.openPath(app.getPath('userData')));
+handle('file:show', (file) => shell.showItemInFolder(file));
 
 handle('interviews:list', () => store.list());
 handle('interviews:create', (fields) => store.create(fields));
