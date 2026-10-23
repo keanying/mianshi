@@ -17,18 +17,20 @@ const sectionHead = (sec) => `${kindChip(sec.source)}${esc(sec.title)}<span>${se
 const VERDICT_CLASS = { 强烈推荐: 'v1', 推荐: 'v2', 待定: 'v3', 不推荐: 'v4' };
 
 // ---------- 工具 ----------
-// 通知：ok 完成（默认）/ info 提示 / warn 提醒 / error 出错。出错的停留久一点，鼠标停在上面时不消失。
+// 通知：页面顶部居中的一句话，点一下就关。ok 完成（默认）/ info 提示 / warn 提醒 / error 出错；
+// 出错和提醒停留久一点，鼠标停在上面时不消失。可以带一个操作按钮（例如「打开所在文件夹」）。
 let toastTimer;
-const TOAST_ICON = { ok: '✓', info: 'i', warn: '!', error: '✕' };
-function toast(message, type = 'ok') {
+const TOAST_ICON = { ok: 'check', info: 'info', warn: 'alert', error: 'close' };
+function toast(message, type = 'ok', { action } = {}) {
   const el = $('#toast');
   el.className = `toast ${type}`;
-  el.innerHTML = `<i class="t-ico">${TOAST_ICON[type] || 'i'}</i><p>${esc(message)}</p><button class="t-close" title="关闭">×</button>`;
+  el.innerHTML = `<i class="t-ico">${icon(TOAST_ICON[type] || 'info')}</i><p>${esc(message)}</p>${action ? `<button class="t-act">${esc(action.label)}</button>` : ''}`;
+  el.title = `${message}（点击关闭）`;
   el.hidden = false;
   el.classList.remove('in'); void el.offsetWidth; el.classList.add('in');
   const hide = () => { el.hidden = true; };
-  el.querySelector('.t-close').onclick = hide;
-  const arm = () => { clearTimeout(toastTimer); toastTimer = setTimeout(hide, type === 'error' || type === 'warn' ? 6000 : 3000); };
+  el.onclick = (e) => { if (action && e.target.closest('.t-act')) action.run(); hide(); };
+  const arm = () => { clearTimeout(toastTimer); toastTimer = setTimeout(hide, type === 'error' ? 6000 : type === 'warn' || action ? 4000 : 2500); };
   el.onmouseenter = () => clearTimeout(toastTimer);
   el.onmouseleave = arm;
   arm();
@@ -230,6 +232,7 @@ const ICON = {
   sparkle: '<path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',
   download: '<path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 20h16"/>',
   check: '<path d="m5 12 5 5 9-10"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
   pulse: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
   users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M21.5 20a6.5 6.5 0 0 0-4-6"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
@@ -269,7 +272,7 @@ function setNav() {
   document.querySelectorAll('.nav button').forEach((b) => b.classList.toggle('active', b.dataset.go === state.view || (state.view === 'interview' && b.dataset.go === 'home')));
 }
 async function go(view) {
-  if (state.recState !== 'idle' && view !== 'interview') { toast('正在录音，请先结束录音。', 'warn'); return; }
+  if (state.recState !== 'idle' && view !== 'interview') { toast('请先结束录音', 'warn'); return; }
   await flushSave();
   stopCheck();
   document.body.classList.remove('focus');
@@ -286,7 +289,7 @@ const levelChip = (level) => (level ? `<i class="lv lv${Levels.LEVEL_NAMES.index
 const passChip = (passed) => (passed == null ? '' : `<i class="pass-chip ${passed ? 'ok' : 'bad'}">${passed ? '达标' : '未达标'}</i>`);
 document.querySelector('.nav').addEventListener('click', (e) => { const b = e.target.closest('[data-go]'); if (b) go(b.dataset.go); });
 $('#newInterview').addEventListener('click', async () => {
-  if (state.recState !== 'idle') { toast('正在录音，请先结束录音。', 'warn'); return; }
+  if (state.recState !== 'idle') { toast('请先结束录音', 'warn'); return; }
   try {
     const i = await call(api.interviews.create({}));
     await openInterview(i.id, 'resume');
@@ -767,7 +770,7 @@ main.addEventListener('click', (e) => {
   if (e.target.closest('[data-back]')) { go('home'); return; }
   const t = e.target.closest('.steps [data-tab]');
   if (t) {
-    if (state.recState !== 'idle' && t.dataset.tab !== 'live') { toast('正在录音，录音结束后再切换。', 'warn'); return; }
+    if (state.recState !== 'idle' && t.dataset.tab !== 'live') { toast('录音中，结束后再切换', 'warn'); return; }
     flushSave();
     state.tab = t.dataset.tab;
     renderTab();
@@ -884,7 +887,7 @@ function renderResume(body) {
 }
 async function generatePlan() {
   const i = state.interview;
-  if (!i.resume.trim()) { toast('请先上传或粘贴简历。', 'warn'); return; }
+  if (!i.resume.trim()) { toast('请先上传简历', 'warn'); return; }
   if (i.plan && !await ask({ title: '重新生成面试题？', body: '现有题目、「换个问法」的改动和「已问」标记都会被覆盖。', ok: '重新生成', danger: true })) return;
   state.busy.plan = true;
   state.stream.plan = '';
@@ -1330,7 +1333,7 @@ function answerFor(q) {
 async function runReview(q, { manual = false } = {}) {
   const answer = answerFor(q);
   if (answer.replace(/\s/g, '').length < (manual ? 10 : 50)) {
-    if (manual) toast(q.askedAt == null ? '这题还没开始问（录音中切到这题或系统认出这题后才开始计）' : '候选人对这题说的话还太少', 'warn');
+    if (manual) toast(q.askedAt == null ? '这题还没开始问' : '候选人说得还太少，稍后再看', 'warn');
     return;
   }
   state.reviewing = q.id;
@@ -1485,7 +1488,7 @@ function renderLive(body) {
       state.interview = fresh;
       state.segErrors.clear();
       state.current = null;
-      toast('已清空，可以重新开始面试');
+      toast('已清空，可以重新开始');
       renderLive(body);
       refreshSteps();
     } catch (err) { ignoreHandled(err); }
@@ -1558,7 +1561,7 @@ api.onSegment((seg) => {
 });
 // 面试中途插拔耳机会切换音频设备，录音可能中断或录错设备，马上提醒。
 navigator.mediaDevices?.addEventListener('devicechange', () => {
-  if (state.recState === 'recording') toast('音频设备变了（是不是插拔了耳机？）。请确认录音和转写还在正常进行。', 'warn');
+  if (state.recState === 'recording') toast('音频设备有变化，请确认录音正常', 'warn');
 });
 // 复盘：点转写里的某一句，回放这一段录音。
 let playing = null;
@@ -1599,7 +1602,7 @@ async function startRecording() {
     renderLive($('#tabBody'));
   } catch (err) {
     if (err.handled) return;
-    toast(/Permission|NotAllowed/i.test(err.name + err.message) ? '没有麦克风权限，请在系统设置里允许「面试助手」使用麦克风。' : `无法开始录音：${err.message}`, 'error');
+    toast(/Permission|NotAllowed/i.test(err.name + err.message) ? '没有麦克风权限，请在系统设置里允许' : `无法开始录音：${err.message}`, 'error');
   }
 }
 async function stopRecording() {
@@ -1617,7 +1620,7 @@ async function stopRecording() {
     state.tab = 'eval';
     renderInterview();
     if (transcriptText(state.interview).replace(/\s/g, '').length >= 50) generateEval({ auto: true });
-    else toast('录音已保存。转写内容太少，没法生成报告，可以在「4 面试中」导入转写后再评估。', 'warn');
+    else toast('录音已保存，转写太少，暂不生成报告', 'warn');
   } catch (err) { ignoreHandled(err); }
 }
 async function importTranscript() {
@@ -1664,7 +1667,7 @@ async function retranscribe() {
     await flushSave();
     const res = await call(api.audio.retranscribe(state.id));
     state.interview = res.interview;
-    toast(res.failed ? `转写完成，${res.failed} 段失败，可以稍后点「重试失败的段」` : `已重新转写 ${res.done} 段`, res.failed ? 'warn' : 'ok');
+    toast(res.failed ? `${res.failed} 段转写失败，可稍后重试` : `已重新转写 ${res.done} 段`, res.failed ? 'warn' : 'ok');
     if (!res.failed) state.segErrors.clear();
   } catch (err) { ignoreHandled(err); }
   if (state.tab === 'live') renderLive($('#tabBody'));
@@ -1786,7 +1789,7 @@ async function generateEval({ auto = false } = {}) {
 async function exportReport(format) {
   try {
     const file = await call(api.exportReport(state.id, format));
-    if (file) toast(`已导出：${file}`);
+    if (file) toast(`已导出 ${file.split(/[\\/]/).pop()}`, 'ok', { action: { label: '打开所在文件夹', run: () => api.showFile(file) } });
   } catch (err) { ignoreHandled(err); }
 }
 
@@ -1814,7 +1817,7 @@ window.addEventListener('beforeunload', (e) => { flushSave(); if (state.recState
     renderSideFoot();
     runHealth();
     await go(state.settings.apiKeyHint ? 'overview' : 'settings');
-    if (!state.settings.apiKeyHint) toast('先配置模型和 API Key，就可以开始使用了。', 'info');
+    if (!state.settings.apiKeyHint) toast('先配置模型和 API Key', 'info');
   } catch (err) { ignoreHandled(err); }
 })();
 })();

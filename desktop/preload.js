@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   info: call('app:info'),
   settings: { get: call('settings:get'), save: call('settings:save'), testLLM: call('settings:testLLM'), testASR: call('settings:testASR') },
   openDataDir: call('data:open'),
+  showFile: call('file:show'),
   interviews: { list: call('interviews:list'), create: call('interviews:create'), get: call('interviews:get'), save: call('interviews:save'), remove: call('interviews:remove'), restart: call('interviews:restart') },
   positions: { list: call('positions:list'), save: call('positions:save'), remove: call('positions:remove') },
   live: { review: call('live:review') },
