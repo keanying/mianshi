@@ -21,7 +21,7 @@ const PLAIN_RULES = `出题必须用大白话，像面对面聊天那样问：
 4. 简历里的内容要具体点名（项目名、数字、做法），让候选人一听就知道问的是哪件事。
 5. “回答要点”也写成大白话，面试官扫一眼就知道好回答应该提到什么。
 
-反例 → 正例：
+反例 → 正例（只是示范说话方式，不要照搬这几道题）：
 ✗ 请阐述你在项目中对检索增强生成召回率优化的技术方案。
 ✓ 你们那个知识库问答，一开始老是找不到对的资料，后来是怎么改好的？
 ✗ 谈谈你对团队协作的理解。
@@ -48,6 +48,7 @@ const QUESTION_SCHEMA = `只输出一个 JSON 对象，不要任何解释，格�
           "difficulty": "难 | 中 | 易",
           "minutes": 预计这题连追问要几分钟（整数，1~6）,
           "why": "这题想了解什么（一句话），画像题和技术题要点名对应的岗位要求或技术点",
+          "basis": "出题依据：简历里的哪句话（摘关键词）/ 岗位要求的哪一条 / 考的是哪个技术角度",
           "points": ["好回答应该提到的点，2~4 条，大白话"],
           "follow": "对方答完后可以追问的一句",
           "dim": "专业度 | 自驱力 | 性格特质 | 逻辑思维 | 适应力 之一",
@@ -63,10 +64,16 @@ const QUESTION_SCHEMA = `只输出一个 JSON 对象，不要任何解释，格�
 const SOURCES = ['warmup', 'gate', 'resume', 'profile', 'tech', 'behavior'];
 const KINDS = ['resume', 'profile', 'tech', 'behavior'];
 const DIFF_RANK = { 难: 3, 中: 2, 易: 1 };
-function questionMessages({ resume, position, level, jd, skills, count = 20 }) {
+// angles：本次随机抽到的考察角度（见 angles.js）；avoid：最近已经出过的题，这次不要重复。
+function questionMessages({ resume, position, level, jd, skills, count = 20, angles = null, avoid = [] }) {
   const n = (r, min) => Math.max(min, Math.round(count * r));
   const profile = n(0.2, 3), tech = n(0.25, 3), behavior = n(0.15, 2);
   const fromResume = Math.max(4, count - 2 - profile - tech - behavior);
+  const techAngles = angles?.techs?.length
+    ? angles.techs.map((t) => `【${t.name}】\n${t.angles.map((a) => `  - ${a}`).join('\n')}`).join('\n')
+    : `（没认出具体技术，按岗位要求推断必须掌握的技术，从这些方面考：${(angles?.generic || []).join('、') || '原理、取舍、排障'}）`;
+  const projectAngles = angles?.project?.length ? `这次项目题优先从这些切入角度里挑（同一项目的几道题用不同角度）：${angles.project.join('；')}。` : '';
+  const avoidBlock = avoid.length ? `\n下面这些题最近已经出过（同岗位的其他候选人，或这场面试上一版），这次不要重复，也不要只换个说法，换角度、换具体点：\n${avoid.slice(0, 40).map((q) => `- ${q}`).join('\n')}\n` : '';
   return [
     {
       role: 'system',
@@ -80,12 +87,14 @@ function questionMessages({ resume, position, level, jd, skills, count = 20 }) {
 - 门槛题 gate，紧接着开场，合计约 13~15 分钟（4~6 道，minutes 加起来不超过 15）：从下面几类里挑最难、最能区分是否达到目标级别的题——岗位画像里最核心的能力、技术栈里最关键的原理、和岗位最相关的那个项目里最硬核的问题。答不好基本就能判断不合适。每道题写清 kind 和 difficulty（基本都是「难」）。
 - 门槛题之后的各组按难度从高到低排，每组内部也先难后易；做事方式题一般放最后。
 各类题目数量（含门槛题里的）大致如下：
-- 简历项目 resume，约 ${fromResume} 道：优先挑和岗位画像最相关的项目，按项目分组，每组 2~4 道：先让对方讲清楚自己做了什么，再问具体做法、取舍和数字，最后问“如果条件变了怎么办”。专门核实简历里看起来夸大或存疑的地方。
-- 岗位画像 profile，约 ${profile} 道：把岗位要求拆成几条能力，每条出题看对方是否真具备，多用“如果让你来负责……你会怎么做”“你遇到过……吗，当时怎么办的”这类情景题，按目标级别的要求来问（比如中级看能不能独立负责模块，高级看能不能做设计和取舍）。按能力分组，标题写“岗位画像：某项能力”。
-- 技术框架 tech，约 ${tech} 道：考技术栈里的语言和框架（比如 Python 的并发、生成器、装饰器、类型标注、包管理，框架的核心机制和常见坑），结合实际场景问原理和用法，不问死记硬背的概念；难度按目标级别。按技术分组，标题写“技术：某项技术”。
+- 简历项目 resume，约 ${fromResume} 道：挑 2~3 个和岗位画像最相关、分量最重的项目，按项目分组，每组 2~4 道。每道题都必须扣住简历里的具体内容——点名项目、技术选型、数字或职责——并在 basis 里写出依据（简历原文的关键词）；放到任何候选人身上都成立的泛泛问题不要出。${projectAngles}专门核实简历里看起来夸大或存疑的地方（比如提升了多少、规模多大、是不是自己做的）。
+- 岗位画像 profile，约 ${profile} 道：把岗位要求拆成几条能力（basis 写对应的岗位要求原文），每条出题看对方是否真具备，多用“如果让你来负责……你会怎么做”“你遇到过……吗，当时怎么办的”这类情景题，按目标级别的要求来问（比如中级看能不能独立负责模块，高级看能不能做设计和取舍）。按能力分组，标题写“岗位画像：某项能力”。
+- 技术框架 tech，约 ${tech} 道：从下面「本次技术考察角度」里挑，每道题一个角度、互不重复，basis 写考的是哪个角度。尽量结合候选人简历里用过这门技术的场景来问（比如他在某个项目里用了某技术，就问那个场景下的原理、取舍、踩坑和排障），不问能背出来的概念定义；难度按目标级别。按技术分组，标题写“技术：某项技术”。
+本次技术考察角度：
+${techAngles}
 - 做事方式 behavior，约 ${behavior} 道：考自驱力、性格特质、适应力，要求对方举真实例子。
-五个维度都要有题覆盖。每道题都标 difficulty 和 minutes。
-输出前自查：每道题都像当面聊天时会说的话吗？有书面腔就改掉。\n\n${QUESTION_SCHEMA}`,
+五个维度都要有题覆盖。每道题都标 difficulty 和 minutes。${avoidBlock}
+输出前自查：① 每道题都像当面聊天时会说的话吗？有书面腔就改掉。② 每道项目题都点名了简历里的具体内容吗？③ 有没有两道题考的是同一个点？有就换掉一道。\n\n${QUESTION_SCHEMA}`,
     },
   ];
 }
@@ -254,6 +263,7 @@ function normalizeQuestions(raw) {
       difficulty: DIFF_RANK[q.difficulty] ? q.difficulty : '中',
       minutes: Math.min(10, Math.max(1, Math.round(Number(q.minutes)) || 3)),
       why: String(q.why || ''),
+      basis: String(q.basis || ''),
       points: (Array.isArray(q.points) ? q.points : []).map(String).filter(Boolean),
       follow: String(q.follow || ''),
       dim: clampDim(q.dim),

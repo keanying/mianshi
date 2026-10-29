@@ -10,6 +10,7 @@ const { transcribe, synthesize, silentWav } = require('./lib/asr');
 const { readResume, SUPPORTED } = require('./lib/resume');
 const { markEcho } = require('./src/text-match');
 const prompts = require('./lib/prompts');
+const { pickAngles } = require('./lib/angles');
 const report = require('./lib/report');
 
 // 测试时可指定数据目录，并使用虚拟麦克风。
@@ -128,11 +129,21 @@ handle('resume:import', async (id, file) => {
   return store.save({ id, resume: text, resumeFile, resumeName: path.basename(file) });
 });
 
+// 最近出过的题：这场上一版的题 + 同岗位最近 3 场面试的题，出新题时让模型避开。
+function recentQuestions(i) {
+  const qs = (plan) => (plan ? plan.sections.flatMap((x) => x.questions.map((q) => q.q)) : []);
+  const same = store.list().filter((x) => x.id !== i.id && i.positionId && x.positionId === i.positionId).slice(0, 3);
+  return [...qs(i.plan), ...same.flatMap((x) => { try { return qs(store.get(x.id).plan); } catch { return []; } })];
+}
 handle('plan:generate', async (id) => {
   const i = store.get(id), s = settings.getPublic();
   if (!i.resume.trim()) throw new Error('请先上传或粘贴简历。');
   const raw = await chatJSON(llmOptions({
-    messages: prompts.questionMessages({ resume: i.resume, position: i.position, level: i.level, jd: i.jd, skills: i.skills, count: s.questionCount }),
+    messages: prompts.questionMessages({
+      resume: i.resume, position: i.position, level: i.level, jd: i.jd, skills: i.skills, count: s.questionCount,
+      angles: pickAngles({ resume: i.resume, jd: i.jd, skills: i.skills }), avoid: recentQuestions(i),
+    }),
+    temperature: 0.85,
     onDelta: progress(id, 'plan'),
   }));
   return store.save({ id, plan: prompts.normalizeQuestions(raw), status: i.status === 'draft' ? 'ready' : i.status });

@@ -907,7 +907,8 @@ function questionCard(q) {
     <div class="q-text"><h3>${esc(q.q)}</h3><p class="sub">${diffChip(q)}${q.kind && KIND[q.kind] ? `<span>${KIND[q.kind]}</span>` : ''}${q.minutes ? `<span>约 ${q.minutes} 分钟</span>` : ''}${q.why ? `<span>${esc(q.why)}</span>` : ''}</p></div>
     <span class="q-actions"><button class="link" data-rewrite="${q.id}">换个问法</button><button class="tick ${q.asked ? 'on' : ''}" data-ask="${q.id}">${q.asked ? '✓ 已问' : '标记已问'}</button><span class="muted">${icon(open ? 'chevU' : 'chevD')}</span></span></div>
    <div class="q-detail"><div><div class="mini-label">回答要点</div><ul class="checks">${q.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
-     ${q.follow ? `<div class="mini-label" style="margin-top:14px">追问</div><p class="follow-box">${esc(q.follow)}</p>` : ''}</div>
+     ${q.follow ? `<div class="mini-label" style="margin-top:14px">追问</div><p class="follow-box">${esc(q.follow)}</p>` : ''}
+     ${q.basis ? `<div class="mini-label" style="margin-top:14px">出题依据</div><p class="basis">${esc(q.basis)}</p>` : ''}</div>
     <div class="signals">${q.good ? `<p class="good"><b>答得不错的表现</b>${esc(q.good)}</p>` : ''}${q.bad ? `<p class="bad"><b>需要警惕</b>${esc(q.bad)}</p>` : ''}</div></div></article>`;
 }
 // 各类题目数量：项目 7 · 画像 4 · 技术 5 · 做事方式 3

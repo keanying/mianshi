@@ -248,3 +248,23 @@ test('questions are ordered hardest first: warm-up, gate, then by difficulty, be
   assert.deepStrictEqual(plan.sections[3].questions.map((x) => x.q), ['r2', 'r1']);
   assert.strictEqual(plan.sections[1].questions[0].minutes, 3);
 });
+
+test('question angles: techs from skills first, random per generation, avoid list passed to the model', () => {
+  const { pickAngles } = require('../../lib/angles');
+  let seed = 1;
+  const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const a = pickAngles({ skills: 'Python、FastAPI', jd: '', resume: '用 Milvus 做了 RAG 知识库，Redis 缓存' }, rand);
+  assert.deepStrictEqual(a.techs.slice(0, 2).map((t) => t.name), ['Python', 'FastAPI']);
+  assert.ok(a.techs.some((t) => t.name === 'RAG / 检索') && a.techs.some((t) => t.name === 'Redis / 缓存'));
+  assert.strictEqual(a.techs[0].angles.length, 4);
+  assert.strictEqual(new Set(a.project).size, 6);
+  const b = pickAngles({ skills: 'Python、FastAPI', jd: '', resume: '用 Milvus 做了 RAG 知识库，Redis 缓存' }, rand);
+  assert.notDeepStrictEqual(a.techs[0].angles, b.techs[0].angles, 'a second generation picks different angles');
+  assert.deepStrictEqual(pickAngles({ resume: '做过销售' }, rand).techs, []);
+  const m = prompts.questionMessages({ resume: '简历', position: 'x', skills: 'Python', angles: a, avoid: ['上次问过的题'] })[1].content;
+  assert.match(m, /【Python】/);
+  assert.match(m, /上次问过的题/);
+  assert.match(m, /basis/);
+  assert.doesNotMatch(m, /比如 Python 的并发、生成器、装饰器/);
+  assert.strictEqual(prompts.normalizeQuestions({ sections: [{ title: 't', source: 'tech', questions: [{ q: '题', basis: '简历：Milvus' }] }] }).sections[0].questions[0].basis, '简历：Milvus');
+});

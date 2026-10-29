@@ -1,7 +1,7 @@
 {
   "name": "interview-assistant",
   "productName": "面试助手",
-  "version": "2.3.4",
+  "version": "2.4.0",
   "description": "面试助手：上传简历生成大白话面试题，录音转写，按五个维度评估候选人",
   "main": "main.js",
   "license": "UNLICENSED",

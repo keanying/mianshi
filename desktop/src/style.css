@@ -722,3 +722,5 @@ input.switch:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .ob-step>div{flex:1}.ob-step b{font-size:14.5px}.ob-step p{font-size:12.5px;color:var(--muted)}
 .chart-tip{position:fixed;z-index:120;padding:6px 10px;border-radius:8px;background:var(--ink);color:#fff;font-size:12.5px;pointer-events:none;box-shadow:0 6px 18px #0003}
 @media (max-width:1180px){.ov-grid{grid-template-columns:1fr 1fr}.ov-todo{grid-column:1/-1}.kpis{grid-template-columns:repeat(2,1fr)}}
+
+.basis{font-size:13px;line-height:1.7;color:var(--muted)}
